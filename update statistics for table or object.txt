@@ -1,0 +1,5 @@
+--update stats for table
+Update STATISTICS HumanResources.Employee
+
+--update stats for stat object
+Update STATISTICS HumanResources.Employee IX_Employee_OrganizationNode

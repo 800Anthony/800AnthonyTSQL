@@ -1,0 +1,60 @@
+--Find unused indexes across all user databases
+IF OBJECT_ID('tempdb..#UnusedIndexes') IS NOT NULL
+	DROP TABLE #UnusedIndexes;
+
+SELECT TOP 0 DB_NAME() AS DatabaseName
+	,s.name AS SchemaName
+	,o.name AS TableName
+	,i.name AS IndexName
+	,iu.user_updates AS IndexUpdates
+	,iu.user_lookups AS UserLookups
+	,iu.user_seeks AS UserSeeks
+	,iu.user_scans AS UserScans
+INTO #UnusedIndexes
+FROM sys.dm_db_index_usage_stats iu
+INNER JOIN sys.objects o ON iu.object_id = o.object_id
+INNER JOIN sys.schemas s ON o.schema_id = s.schema_id
+INNER JOIN sys.indexes i ON o.object_id = i.object_id
+	AND i.index_id = iu.index_id
+WHERE i.is_primary_key = 0
+	AND i.is_unique = 0
+	AND iu.user_lookups = 0
+	AND iu.user_scans = 0
+	AND iu.user_seeks = 0;
+
+EXEC sp_MSforeachdb '
+USE [?]
+IF DB_ID() > 4
+BEGIN
+INSERT INTO #UnusedIndexes
+SELECT
+DB_NAME() AS DatabaseName,
+s.name AS SchemaName,
+o.name AS TableName,
+i.name AS IndexName,
+iu.user_updates as IndexUpdates,
+iu.user_lookups as UserLookups,
+iu.user_seeks AS UserSeeks,
+iu.user_scans as UserScans
+FROM sys.dm_db_index_usage_stats iu
+INNER JOIN sys.objects o
+ON iu.object_id = o.object_id
+INNER JOIN sys.schemas s
+ON o.schema_id = s.schema_id
+INNER JOIN sys.indexes i
+ON o.object_id = i.object_id
+AND i.index_id = iu.index_id
+WHERE i.is_primary_key = 0
+AND i.is_unique = 0
+AND iu.user_lookups = 0
+AND iu.user_scans = 0
+AND iu.user_seeks = 0;
+END'
+
+SELECT TOP 10 DatabaseName
+	,SchemaName
+	,TableName
+	,IndexName
+	,IndexUpdates
+FROM #UnusedIndexes
+ORDER BY IndexUpdates DESC;

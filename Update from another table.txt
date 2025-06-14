@@ -1,0 +1,8 @@
+﻿
+
+update titles
+SET ytd_sales = titles.ytd_sales + sales.qty
+from titles, sales
+WHERE titles.title_id = sales.title_id
+
+

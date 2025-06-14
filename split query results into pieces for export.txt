@@ -1,0 +1,8 @@
+     SELECT * FROM 
+     (
+          select * ,
+          ROW_NUMBER() OVER (ORDER BY requestid) AS num
+          FROM RequestAction
+
+     ) AS a
+     where num between 1 and 20

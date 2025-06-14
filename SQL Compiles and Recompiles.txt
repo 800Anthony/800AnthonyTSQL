@@ -1,0 +1,25 @@
+/*
+SQL Compilation %
+The recommended percentage for compilations is roughly 10% of the total number of batch requests. 
+*/
+
+SELECT 1.0*cntr_value /
+(SELECT 1.0*cntr_value
+FROM sys.dm_os_performance_counters
+WHERE counter_name = 'Batch Requests/sec')
+AS [SQLCompilationPct]
+FROM sys.dm_os_performance_counters
+WHERE counter_name = 'SQL Compilations/sec'
+
+/*
+SQL Re-compilation %
+Should only be roughly 1% of the total number of batch requests
+*/
+
+SELECT 1.0*cntr_value /
+(SELECT 1.0*cntr_value
+FROM sys.dm_os_performance_counters
+WHERE counter_name = 'Batch Requests/sec')
+AS [SQLReCompilationPct]
+FROM sys.dm_os_performance_counters
+WHERE counter_name = 'SQL Re-Compilations/sec'

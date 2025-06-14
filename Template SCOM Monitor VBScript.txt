@@ -1,0 +1,57 @@
+Option Explicit
+
+'=================
+'Declare Variables 
+'=================
+Dim con, rst, sConString, sSQLString
+Dim strDBName, strDBServerName
+Dim objShell, objMOMAPI 
+Dim objBag, StateDataType
+
+Const EVENT_TYPE_ERROR   = 1
+Const EVENT_TYPE_WARNING = 2
+Const EVENT_TYPE_INFORMATION = 4
+
+'Create Objects 
+'Set objArgs = WScript.Arguments
+Set con = CreateObject("ADODB.Connection")
+Set objShell = WScript.CreateObject("WScript.Shell")
+
+'=================================
+'Instantiate OpsMgr Scripting Runtime  
+'=================================
+Set objMOMAPI = CreateObject("MOM.ScriptAPI")
+Set objBag = objMOMAPI.CreateTypedPropertyBag(StateDataType)
+
+
+'Read OpsMgr Operational database server and database name from registry
+strDBName = "master"
+strDBServerName = CStr(WScript.Arguments(0))
+
+'Create SQL connection string based on values read from the registry
+sConString = "Provider=SQLOLEDB.1;Integrated Security=SSPI;Persist Security Info=False;Initial Catalog=" & strDBName & ";Data Source=" & strDBServerName &";"
+con.Open sConString
+
+sSQLString = "Select session_id,wait_type,wait_duration_ms,blocking_session_id,resource_description,ResourceType = Case When Cast(Right(resource_description, Len(resource_description) - Charindex(':', resource_description, 3)) As Int) - 1 % 8088 = 0 Then 'Is PFS Page' When Cast(Right(resource_description, Len(resource_description) - Charindex(':', resource_description, 3)) As Int) - 2 % 511232 = 0 Then 'Is GAM Page' When Cast(Right(resource_description, Len(resource_description) - Charindex(':', resource_description, 3)) As Int) - 3 % 511232 = 0 Then 'Is SGAM Page'Else 'Is Not PFS, GAM, or SGAM page'End From sys.dm_os_waiting_tasks Where wait_type Like 'PAGE%LATCH_%'And resource_description Like '2:%'"
+Set rst = con.Execute(sSQLString)
+
+Do While Not rst.EOF
+	If rst.fields.item(0) = 0 Then
+		Call objBag.AddValue("State","GOOD")
+		Call objMOMAPI.Return(objBag)
+		WScript.echo rst.fields.item(0)
+	Else 
+		Call objMOMAPI.LogScriptEvent("PendingActionsCheck.vbs ",12222, EVENT_TYPE_Warning, "There are " & rst.fields.item(0) & " pending actions.  Please check the Operations Console.")	
+		Call objBag.AddValue("State","BAD")
+		Call objMOMAPI.Return(objBag)		
+	end If
+   
+    rst.MoveNext
+
+Loop
+
+
+rst.Close
+Set rst = Nothing
+con.Close
+Set con = Nothing

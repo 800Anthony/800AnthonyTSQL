@@ -1,0 +1,48 @@
+﻿
+
+function Get-InvalidLogins           
+{           
+    param($ServerInstance)           
+           
+    foreach ($r in Invoke-SqlCmd -ServerInstance $ServerInstance
+-Database 'master' -Query 'sp_validatelogins')           
+    {           
+        $NTLogin = $r.'NT Login'           
+        $SID = new-object
+security.principal.securityidentifier($r.SID,0)           
+        $newAccount = $null           
+        trap { $null; continue } $newAccount =
+$SID.translate([system.security.principal.NTAccount])           
+       if ($newAccount -eq $null) {            
+        $isOrphaned = $true           
+        $isRenamed = $false           
+        }           
+       else {           
+        $isOrphaned = $false           
+        $isRenamed = $true           
+        }           
+        if ($NTLogin -ne $newAccount) {           
+        new-object psobject |           
+        add-member -pass NoteProperty NTLogin $NTLogin
+|           
+        add-Member -pass NoteProperty TSID $SID
+|           
+        add-Member -pass NoteProperty Server $ServerInstance
+|           
+        add-Member -pass NoteProperty IsOrphaned $isOrphaned
+|           
+        add-Member -pass NoteProperty IsRenamed $isRenamed
+|           
+        add-Member -pass NoteProperty NewNTAccount
+$newAccount           
+        }           
+    }           
+           
+} #Get-InvalidLogins
+
+Get-InvalidLogins "nmrlons0198"
+
+
+ 
+
+

@@ -1,0 +1,53 @@
+﻿
+
+
+BEGIN TRAN
+
+SELECT
+ c.Path,
+ c.Name,
+ RIGHT(
+  CONVERT(VARCHAR(1000), el.Parameters),
+  LEN(CONVERT(VARCHAR(1000), el.Parameters)) - CHARINDEX('rth\',
+CONVERT(VARCHAR(1000), el.Parameters)) + 1
+ ) AS RecipientLogin,
+ el.*
+INTO #t_recipients
+FROM dbo.Catalog AS c
+JOIN dbo.ExecutionLog AS el
+ ON c.ItemID = el.ReportID
+WHERE
+ el.RequestType = 1  -- subscription rather than ad-hoc
+ AND el.TimeStart >= CONVERT(DATETIME, '2010-01-10 00:00:00', 20) --
+run since Sunday
+ AND c.Name IN
+ (
+  'MonthlyNPPsSubmittedWithinCountryHeadsJurisdiction',
+  'MonthlyNPPsSubmittedWithinSectorHeadsJurisdiction',
+  'MonthlyNPPsSubmittedWithinProductHeadsJurisdiction',
+  'MonthlyNPPsSubmittedForCoverageDirector',
+  'NPPsOutstandingForNPPCoordinatorApproval',
+  'CurrentMandatesWithinCountryHeadsJurisdiction',
+  'CurrentMandatesWithinSectorHeadsJurisdiction',
+  'CurrentMandatesWithinProductHeadsJurisdiction'
+ )
+ORDER BY
+ c.Name,
+ CONVERT(VARCHAR(1000), el.Parameters),
+ el.TimeStart;
+
+UPDATE #t_recipients
+SET RecipientLogin = LEFT(RecipientLogin, CHARINDEX('&', RecipientLogin)
+- 1);
+
+SELECT
+ g.LastName + ', ' + g.FirstName AS RecipientName,
+ r.*
+FROM #t_recipients r
+LEFT JOIN hr_employee.dbo.gal g
+ ON r.RecipientLogin = g.nt_username COLLATE database_default;
+
+ROLLBACK TRAN
+
+
+

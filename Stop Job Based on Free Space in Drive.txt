@@ -1,0 +1,136 @@
+USE master
+GO
+
+CREATE PROCEDURE sp_fixeddrives @Drv CHAR(1)
+	,@FreeSpacePercent TINYINT OUTPUT
+AS
+SET NOCOUNT ON
+
+DECLARE @hr INT
+DECLARE @fso INT
+DECLARE @drive CHAR(1)
+DECLARE @odrive INT
+DECLARE @TotalSize VARCHAR(20)
+DECLARE @MB NUMERIC;
+
+SET @MB = 1048576
+
+CREATE TABLE #drives (
+	drive CHAR(1) PRIMARY KEY
+	,FreeSpace FLOAT NULL
+	,TotalSize FLOAT NULL
+	)
+
+INSERT #drives (
+	drive
+	,FreeSpace
+	)
+EXEC master.dbo.xp_fixeddrives
+
+EXEC @hr = sp_OACreate 'Scripting.FileSystemObject'
+	,@fso OUTPUT
+
+IF @hr <> 0
+	EXEC sp_OAGetErrorInfo @fso
+
+DECLARE dcur CURSOR LOCAL FAST_FORWARD
+FOR
+SELECT drive
+FROM #drives
+ORDER BY drive
+
+OPEN dcur
+
+FETCH NEXT
+FROM dcur
+INTO @drive
+
+WHILE @@FETCH_STATUS = 0
+BEGIN
+	EXEC @hr = sp_OAMethod @fso
+		,'GetDrive'
+		,@odrive OUTPUT
+		,@drive
+
+	IF @hr <> 0
+		EXEC sp_OAGetErrorInfo @fso
+
+	EXEC @hr = sp_OAGetProperty @odrive
+		,'TotalSize'
+		,@TotalSize OUTPUT
+
+	IF @hr <> 0
+		EXEC sp_OAGetErrorInfo @odrive
+
+	UPDATE #drives
+	SET TotalSize = @TotalSize / @MB
+	WHERE drive = @drive
+
+	FETCH NEXT
+	FROM dcur
+	INTO @drive
+END
+
+CLOSE dcur
+
+DEALLOCATE dcur
+
+EXEC @hr = sp_OADestroy @fso
+
+IF @hr <> 0
+	EXEC sp_OAGetErrorInfo @fso
+
+SELECT drive
+	,CAST((FreeSpace / (TotalSize * 1.0)) * 100.0 AS INT) AS 'Free(%)'
+INTO #res
+FROM #drives
+WHERE drive = @Drv
+
+SELECT @FreeSpacePercent = [Free(%)]
+FROM #res
+
+DROP TABLE #drives
+
+DROP TABLE #res
+
+RETURN
+GO
+
+USE master;
+GO
+
+sp_configure 'Ole Automation Procedures'
+	,1
+
+RECONFIGURE
+GO
+
+DECLARE @FSP TINYINT
+DECLARE @drvparam CHAR(1) = 'M'
+DECLARE @jobname VARCHAR(100) = 'AxSys Adhoc DB Reindex'
+
+EXEC master..sp_fixeddrives @Drv = @drvparam
+	,@FreeSpacePercent = @FSP OUTPUT
+
+IF @FSP < 20
+	AND EXISTS (
+		SELECT 1
+		FROM msdb.dbo.sysjobs J
+		INNER JOIN msdb.dbo.sysjobactivity A ON A.job_id = J.job_id
+		WHERE J.NAME = @jobname
+			AND A.run_requested_date IS NOT NULL
+			AND A.stop_execution_date IS NULL
+		)
+BEGIN
+	SELECT @drvparam Drive
+		,@FSP FreeSpacePercent
+
+	EXEC msdb..sp_stop_job @jobname;
+END
+GO
+
+sp_configure 'Ole Automation Procedures'
+	,0
+
+RECONFIGURE
+GO

@@ -1,0 +1,7 @@
+﻿SELECT
+  *
+   
+FROM sys.traces i
+CROSS APPLY sys.fn_trace_gettable([path], DEFAULT) t
+WHERE  LoginName like '%repo%'
+order by last_event_time desc

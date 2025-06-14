@@ -1,0 +1,22 @@
+T-SQL Queries to find SQL Server Cluster Nodes and Shared Drives
+
+ 
+In one of my earlier post's "Finding Cluster Nodes or Cluster Name" , I had told about the query which can be used to find the name of the node on which the SQL Server Instance is currently running.
+Here are more such SQL Server cluster related T-SQL queries which helps in finding SQL Server Cluster Nodes and their shared drives.
+1 Find name of the Node on which SQL Server Instance is Currently running
+SELECT SERVERPROPERTY('ComputerNamePhysicalNetBIOS') AS [CurrentNodeName] 
+If the server is not cluster, then the above query returns the Host Name of the Server.
+
+2 Find SQL Server Cluster Nodes
+a. Using Function
+SELECT * FROM fn_virtualservernodes() 
+
+b. Using DMV 
+SELECT * FROM sys.dm_os_cluster_nodes 
+
+3 Find SQL Server Cluster Shared Drives
+a. Using Function
+SELECT * FROM fn_servershareddrives() 
+
+b. Using DMV
+SELECT * FROM sys.dm_io_cluster_shared_drives

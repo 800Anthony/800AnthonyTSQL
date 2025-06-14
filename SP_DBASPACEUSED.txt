@@ -1,0 +1,141 @@
+﻿
+
+--MAKE SURE THESE TABLES EXIST IN THE DBA DATABASE -
+
+CREATE TABLE [dbo].[TabSpaceTxt](
+ [TabName] [sysname] NOT NULL,
+ [Rows] [varchar](11) NULL,
+ [Reserved] [varchar](18) NULL,
+ [Data] [varchar](18) NULL,
+ [Index_Size] [varchar](18) NULL,
+ [Unused] [varchar](18) NULL
+)
+
+GO
+
+CREATE TABLE [dbo].[TabSpace](
+ [DT] [datetime] NULL,
+ [DB] [sysname] NOT NULL,
+ [Schema] [sysname] NOT NULL,
+ [TabName] [sysname] NOT NULL,
+ [Rows] [bigint] NULL,
+ [ReservedMB] [numeric](18, 3) NULL,
+ [DataMB] [numeric](18, 3) NULL,
+ [Index_SizeMB] [numeric](18, 3) NULL,
+ [UnusedMB] [numeric](18, 3) NULL
+)
+
+ 
+
+---------------------------------------------------------------------
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+USE [master]
+GO
+
+/****** Object:  StoredProcedure [dbo].[sp_DBASpaceUsed]    Script
+Date: 09/16/2010 17:17:30 ******/
+SET ANSI_NULLS ON
+GO
+
+SET QUOTED_IDENTIFIER ON
+GO
+
+CREATE PROC [dbo].[sp_DBASpaceUsed]
+    @SourceDB varchar(128) = null
+    ,
+    @SortBy char(1) = 'S'
+ 
+
+AS
+    SET NOCOUNT ON
+    DECLARE @sql nvarchar(4000)
+    IF @SourceDB IS NULL
+        BEGIN
+            SET @SourceDB = DB_NAME() -- The current DB
+        END
+--------------------------------------------------------
+-- Create and fill a list of the tables in the database.
+    CREATE TABLE #Tables
+        (
+          [schema] sysname,
+          TabName sysname
+        )
+ 
+    SELECT  @sql = 'insert #tables ([schema], [TabName])
+                  select TABLE_SCHEMA, TABLE_NAME
+            from [' + @SourceDB + '].INFORMATION_SCHEMA.TABLES
+             where TABLE_TYPE = ''BASE TABLE'''
+    EXEC ( @sql
+        )
+
+   
+    
+    DECLARE @Tab sysname -- table name
+        ,
+        @Sch sysname -- owner,schema
+    DECLARE TableCursor CURSOR
+        FOR SELECT  [SCHEMA],
+                    TabNAME
+            FROM    #tables
+    OPEN TableCursor ;
+    FETCH TableCursor into @Sch, @Tab ;
+    WHILE @@FETCH_STATUS = 0
+        BEGIN
+            SELECT  @sql = 'exec [' + @SourceDB
+                    + ']..sp_executesql N''insert
+DBA.dbo.TabSpaceTxt exec sp_spaceused '
+                    + '''''[' + @Sch + '].[' + @Tab +
+']' + '''''''' ;
+            Delete  from DBA.dbo.TabSpaceTxt ; -- Stores 1
+result at a time
+            EXEC ( @sql
+                ) ;
+            INSERT  INTO DBA.dbo.TabSpace
+                    SELECT  GETDATE(),DB_NAME(),@Sch,
+                            [TabName],
+                            convert(bigint,
+rows),
+                           
+convert(numeric(18, 3), convert(numeric(18, 3), left(reserved,
+len(reserved) - 3))
+                            / 1024.0)
+ReservedMB,
+                           
+convert(numeric(18, 3), convert(numeric(18, 3), left(data, len(data) - 3))
+                            / 1024.0) DataMB,
+                           
+convert(numeric(18, 3), convert(numeric(18, 3), left(index_size,
+len(index_size) - 3))
+                            / 1024.0)
+Index_SizeMB,
+                           
+convert(numeric(18, 3), convert(numeric(18, 3), left(unused,
+len([Unused]) - 3))
+                            / 1024.0)
+[UnusedMB]
+                    FROM    DBA.dbo.TabSpaceTxt ;
+            FETCH TableCursor into @Sch, @Tab ;
+        END ;
+    CLOSE TableCursor ;
+    DEALLOCATE TableCursor ;
+ 
+    DROP TABLE #Tables
+
+
+GO
+
+ 
+
+

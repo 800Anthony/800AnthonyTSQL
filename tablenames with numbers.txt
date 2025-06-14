@@ -1,0 +1,9 @@
+SELECT  schema_name(schema_id) as schema_name,o.name as tbl_name,
+  ddps.row_count 
+FROM sys.indexes AS i
+  INNER JOIN sys.objects AS o ON i.OBJECT_ID = o.OBJECT_ID
+  INNER JOIN sys.dm_db_partition_stats AS ddps ON i.OBJECT_ID = ddps.OBJECT_ID
+  AND i.index_id = ddps.index_id 
+WHERE i.index_id < 2  AND o.is_ms_shipped = 0
+and (o.name like '%[0-9]%' and o.name not like '%sp_who%') or o.name like '%tmp%' or o.name like '%bak%'
+ORDER BY 3 desc

@@ -1,0 +1,5 @@
+SELECT 'OS Info - SQL Start' AS Process, sqlserver_start_time AS Time FROM sys.dm_os_sys_info
+UNION ALL
+SELECT 'System Process Start', MIN(login_time) FROM sys.sysprocesses
+UNION ALL
+SELECT 'TempDB Created', create_date FROM sys.databases WHERE name = 'tempdb'

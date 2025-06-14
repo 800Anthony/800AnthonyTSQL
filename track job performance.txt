@@ -1,0 +1,25 @@
+select j.job_id, j.name as job_name
+, count(last10runs.instance_id) as last_runs_checked
+, avg(last10runs.run_duration_seconds) AS avg_run_duration_sec
+, min(last10runs.run_duration_seconds) AS min_run_duration_sec
+, max(last10runs.run_duration_seconds) AS max_run_duration_sec
+, (min(last10runs.run_duration_seconds) + max(last10runs.run_duration_seconds)) / 2 AS median_run_duration_sec
+, lastrun.run_duration_seconds as last_run_duration_sec
+from msdb..sysjobs as j
+cross apply
+(
+	select top (10) instance_id, datediff(second, '1970-01-01', msdb.dbo.agent_datetime(19700101, run_duration)) as run_duration_seconds
+	from msdb..sysjobhistory as jh
+	where jh.job_id = j.job_id
+	and step_id = 0 -- (Job outcome)
+	order by msdb.dbo.agent_datetime(run_date, run_time) DESC
+) as last10runs
+cross apply
+(
+	select top (1) instance_id, datediff(second, '1970-01-01', msdb.dbo.agent_datetime(19700101, run_duration)) as run_duration_seconds
+	from msdb..sysjobhistory as jh
+	where jh.job_id = j.job_id
+	and step_id = 0 -- (Job outcome)
+	order by msdb.dbo.agent_datetime(run_date, run_time) DESC
+) as lastrun
+group by j.job_id, j.name, lastrun.run_duration_seconds

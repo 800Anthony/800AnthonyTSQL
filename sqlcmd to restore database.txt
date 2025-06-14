@@ -1,0 +1,1 @@
+C:\Program Files\Microsoft SQL Server\Client SDK\ODBC\170\Tools\Binn>sqlcmd -S ukceptestsql.84d52eb818e1.database.windows.net -Ucloudsa -PNUebfLnbPuZt2JwT4k@@!!agZYeJ62DAW! -i C:\temp\ukihdbtest_script.sql

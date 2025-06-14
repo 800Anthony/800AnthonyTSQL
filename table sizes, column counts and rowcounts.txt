@@ -1,0 +1,55 @@
+select object_schema_name( t.object_id ) as 'Schema'
+, object_name (t.object_id) as 'Table'
+, sum(p.rows) as 'Row Count'
+, cast( sum(a.total_pages) * 8.0 / 1024. / 1024 
+    as decimal(16,3)) as 'size in GB'
+    , (select count(*) from sys.columns as col
+    where t.object_id = col.object_id ) as 'Cols Count'
+, (select count(*) 
+        from sys.columns as col
+        join sys.types as tp
+        on col.system_type_id = tp.system_type_id
+        where t.object_id = col.object_id and 
+             UPPER(tp.name) in ('VARCHAR','NVARCHAR') 
+   ) as 'String Columns'
+, (select sum(col.max_length) 
+        from sys.columns as col
+        join sys.types as tp
+        on col.system_type_id = tp.system_type_id
+        where t.object_id = col.object_id 
+  ) as 'Cols Max Length'
+, (select count(*) 
+        from sys.columns as col
+        join sys.types as tp
+        on col.system_type_id = tp.system_type_id
+        where t.object_id = col.object_id and 
+             (UPPER(tp.name) in ('TEXT','NTEXT','TIMESTAMP','HIERARCHYID','SQL_VARIANT','XML','GEOGRAPHY','GEOMETRY') OR
+              (UPPER(tp.name) in ('VARCHAR','NVARCHAR') and (col.max_length = 8000 or col.max_length = -1)) 
+             )
+   ) as 'Unsupported Columns'
+, (select count(*)
+        from sys.objects
+        where type = 'PK' AND parent_object_id = t.object_id ) as 'Primary Key'
+, (select count(*)
+        from sys.objects
+        where type = 'F' AND parent_object_id = t.object_id ) as 'Foreign Keys'
+, (select count(*)
+        from sys.objects
+        where type in ('UQ','D','C') AND parent_object_id = t.object_id ) as 'Constraints'
+, (select count(*)
+        from sys.objects
+        where type in ('TA','TR') AND parent_object_id = t.object_id ) as 'Triggers'
+, t.is_tracked_by_cdc as 'CDC'
+, t.is_memory_optimized as 'Hekaton'
+, t.is_replicated as 'Replication'
+, coalesce(t.filestream_data_space_id,0,1) as 'FileStream'
+, t.is_filetable as 'FileTable'
+from sys.tables t
+inner join sys.partitions as p 
+    ON t.object_id = p.object_id
+INNER JOIN sys.allocation_units as a 
+    ON p.partition_id = a.container_id
+where p.data_compression in (0,1,2) -- None, Row, Page
+group by t.object_id, t.is_tracked_by_cdc,  t.is_memory_optimized, t.is_filetable, t.is_replicated, t.filestream_data_space_id
+having sum(p.rows) > 1000000
+order by 1,2

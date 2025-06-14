@@ -1,0 +1,29 @@
+SET ARITHABORT OFF
+SET ANSI_WARNINGS OFF
+GO
+
+SELECT TOP 10 getdate() tstamp,
+	b.tablename,
+	b.[rowcount],
+	previous_rowcount,
+	diff,
+	diff_pcnt FROM (
+	SELECT id,
+		tablename,
+		tstamp,
+		[rowcount],
+		previous_rowcount,
+		diff,
+		cast(cast(100 AS FLOAT) * cast(diff AS FLOAT) / cast([rowcount] AS FLOAT) AS DECIMAL(10, 6)) diff_pcnt FROM (
+		SELECT id,
+			tablename,
+			tstamp,
+			[rowcount],
+			LAG([rowcount]) OVER (PARTITION BY tablename ORDER BY tstamp) AS previous_rowcount,
+			[rowcount] - LAG([rowcount]) OVER (PARTITION BY tablename ORDER BY tstamp) AS diff FROM dbatoolbox.dbo.TableRowCount_Hist
+		) a
+	) b,
+	(
+		SELECT max(id) id,
+			tablename FROM dbatoolbox.dbo.TableRowCount_Hist GROUP BY tablename
+		) c WHERE b.id = c.id AND b.tablename = c.tablename ORDER BY diff_pcnt DESC

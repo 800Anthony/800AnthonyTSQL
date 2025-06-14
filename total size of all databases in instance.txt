@@ -1,0 +1,6 @@
+select
+'server' = @@servername
+, 'total size in megabytes'= convert(decimal(10,2),(sum(size * 8.00) / 1024.00 ))
+, 'total size in gigabytes' = convert(decimal(10,2),(sum(size * 8.00) / 1024.00 / 1024.00))
+, 'total size in terabytes' = convert(decimal(10,2),(sum(size * 8.00) / 1024.00 / 1024.00 / 1024.00)) from
+sys.master_files

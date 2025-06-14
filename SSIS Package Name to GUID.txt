@@ -1,0 +1,26 @@
+USE MSDB
+GO
+WITH xmlPackages
+-- Read sysssispackage and convert packagedata image column to XML datatype
+AS
+(SELECT [name]
+, [Description]
+, verbuild
+, CAST(CAST(packagedata as VARBINARY(MAX)) AS XML) PackageXML
+FROM dbo.sysssispackages)
+,
+Packages
+-- Cross join each package row with itself to extract out the GUID then convert it to VARCHAR
+
+AS
+(SELECT [name]
+, [Description]
+, [verbuild]
+, x.guid.value('text()[1]', 'varchar(4000)') PackageGUID
+FROM xmlPackages
+CROSS APPLY
+PackageXML.nodes('declare namespace DTS="www.microsoft.com/SqlServer/Dts"; //DTS:Executable/DTS:Property[@DTS:Name="VersionGUID"]') AS x(guid)
+)
+
+SELECT *
+FROM Packages

@@ -1,0 +1,441 @@
+﻿
+
+
+SET NOCOUNT ON ;
+
+--Version Info
+
+DECLARE @Version AS VARCHAR(4000)
+
+DECLARE @PortNumber AS VARCHAR(10)
+
+SET @Version = @@VERSION
+
+--Get Port Number
+
+IF ( SELECT
+
+CONVERT(VARCHAR(1), ( SERVERPROPERTY('ProductVersion') ))
+
+) = 8
+
+BEGIN
+
+CREATE TABLE #ErrorLog_2K
+
+(
+
+ErrorLog NVARCHAR(4000),
+
+ContinuationRow INT
+
+)
+
+INSERT INTO
+
+#ErrorLog_2K
+
+EXEC master..xp_readerrorlog
+
+DROP TABLE #ErrorLog_2K
+
+END
+
+IF ( SELECT
+
+CONVERT(VARCHAR(1), ( SERVERPROPERTY('ProductVersion') ))
+
+) <> 8
+
+BEGIN
+
+CREATE TABLE #ErrorLog
+
+(
+
+Logdate DATETIME,
+
+ProcessInfo NVARCHAR(100),
+
+[Text] NVARCHAR(4000)
+
+)
+
+INSERT INTO
+
+#ErrorLog
+
+EXEC master..xp_readerrorlog
+
+SELECT
+
+@PortNumber = SUBSTRING(RIGHT(text, 6), 1, 4)
+
+FROM
+
+#ErrorLog
+
+WHERE
+
+text LIKE 'Server is listening on % ''any'' %'
+
+DROP TABLE #ErrorLog
+
+END
+
+--Get Domain
+
+DECLARE
+
+@Domain VARCHAR(100),
+
+@key VARCHAR(100)
+
+SET @key = 'SYSTEM\ControlSet001\Services\Tcpip\Parameters\'
+
+EXEC master..xp_regread @rootkey = 'HKEY_LOCAL_MACHINE', @key = @key,
+
+@value_name = 'Domain', @value = @Domain OUTPUT
+
+SELECT
+
+@Domain = UPPER(CONVERT(VARCHAR(100), @Domain))
+
+
+
+CREATE TABLE #DTSTable
+
+(
+
+name VARCHAR(100),
+
+id UNIQUEIDENTIFIER,
+
+VersionID UNIQUEIDENTIFIER,
+
+description VARCHAR(100),
+
+createddate DATETIME,
+
+owner VARCHAR(100),
+
+size VARCHAR(100),
+
+packagedata IMAGE,
+
+isowner INT,
+
+packagetype INT
+
+)
+
+INSERT INTO
+
+#DTSTable
+
+EXEC msdb..sp_enum_dtspackages
+
+CREATE TABLE #Database_Size
+
+(
+
+Database_Name VARCHAR(200),
+
+Database_Size INT,
+
+Remarks VARCHAR(200)
+
+)
+
+INSERT INTO
+
+#Database_Size
+
+EXEC sp_databases
+
+CREATE TABLE #Sheet
+
+(
+
+Domain VARCHAR(200),
+
+Data_Server_Name VARCHAR(200),
+
+System_Summary VARCHAR(500),
+
+Software_Program_Groups VARCHAR(200),
+
+SQL_Instance_Name VARCHAR(200),
+
+Instance_Port_Number VARCHAR(10),
+
+SQL_Build_Number VARCHAR(200),
+
+SQL_Edition VARCHAR(200),
+
+SQL_Configuration VARCHAR(4000),
+
+#_Of_DTS_Stored_In_Instance INT,
+
+#_OF_SSIS_Stored_In_Instance INT,
+
+DB_NAME VARCHAR(200),
+
+DB_Configuration VARCHAR(4000),
+
+Business_Area VARCHAR(200),
+
+Application_Name VARCHAR(200),
+
+DB_Owner VARCHAR(200),
+
+Complexity VARCHAR(200),
+
+Sensitivity VARCHAR(200),
+
+Size_Mb INT,
+
+Prod_UAT_DEV VARCHAR(200),
+
+Third_party VARCHAR(200)
+
+)
+
+INSERT INTO
+
+#Sheet
+
+(
+
+Domain,
+
+Data_Server_Name,
+
+System_Summary,
+
+Software_Program_Groups,
+
+SQL_Instance_Name,
+
+Instance_Port_Number,
+
+SQL_Build_Number,
+
+SQL_Edition,
+
+SQL_Configuration,
+
+#_Of_DTS_Stored_In_Instance,
+
+#_OF_SSIS_Stored_In_Instance,
+
+DB_NAME,
+
+DB_Configuration,
+
+Business_Area,
+
+Application_Name,
+
+DB_Owner,
+
+Complexity,
+
+Sensitivity,
+
+Size_Mb,
+
+Prod_UAT_DEV,
+
+Third_party
+
+)
+
+SELECT
+
+@Domain AS Domain,
+
+CONVERT(CHAR(20), SERVERPROPERTY('MachineName')) AS Data_Server_Name,
+
+@Version AS System_Summary,
+
+'' AS Software_Program_Groups,
+
+CONVERT(CHAR(20), ISNULL(SERVERPROPERTY('InstanceName'), 'Default'))
+SQL_Instance_Name,
+
+@PortNumber AS Instance_Port_Number,
+
+CAST(SERVERPROPERTY('productversion') AS VARCHAR(200)) AS
+SQL_Build_Number,
+
+CAST(SERVERPROPERTY('edition') AS VARCHAR(200)) AS SQL_Edition,
+
+'' AS SQL_Configuration,
+
+( SELECT COUNT (*) FROM #DTSTable
+
+) AS #_Of_DTS_Stored_In_Instance,
+
+'' AS #_OF_SSIS_Stored_In_Instance,
+
+name AS DB_NAME,
+
+'' AS DB_Configuration,
+
+'' AS Business_Area,
+
+'' AS Application_Name,
+
+'' AS DB_Owner,
+
+'' AS Complexity,
+
+'' AS Sensitivity,
+
+DBS.Database_Size AS Size_Mb,
+
+'' AS Prod_UAT_DEV,
+
+'' AS Third_party
+
+FROM
+
+master..sysdatabases DB
+
+JOIN
+
+#Database_Size DBS
+
+ON DB.name = DBS.Database_Name
+
+WHERE
+
+name NOT IN ( 'master', 'tempdb', 'model', 'msdb' )
+
+ORDER BY
+
+name
+
+
+
+DECLARE @SQLConfigurationText AS VARCHAR(4000)
+
+SET @SQLConfigurationText = ''
+
+DROP TABLE #DTSTable
+
+DROP TABLE #Database_Size
+
+
+
+DECLARE @SQLConfiguration TABLE
+
+(
+
+namez VARCHAR(50),
+
+minimun INT,
+
+maximum INT,
+
+config_value INT,
+
+run_value INT
+
+)
+
+DECLARE @SSISCount AS INT
+
+SET @SSISCount = 0
+
+
+
+USE msdb
+
+IF EXISTS ( SELECT
+
+1
+
+FROM
+
+INFORMATION_SCHEMA.TABLES
+
+WHERE
+
+TABLE_TYPE = 'BASE TABLE'
+
+AND TABLE_NAME = 'sysssispackages' )
+
+BEGIN
+
+SELECT
+
+@SSISCount = COUNT(*)
+
+FROM
+
+MSDB.dbo.sysssispackages
+
+WHERE
+
+description != 'System Data Collector Package'
+
+END
+
+ELSE
+
+SET @SSISCount = 0
+
+UPDATE
+
+#Sheet
+
+SET
+
+#_OF_SSIS_Stored_In_Instance = @SSISCount
+
+SELECT
+
+Domain,
+
+Data_Server_Name,
+
+SQL_Instance_Name,
+
+Instance_Port_Number,
+
+SQL_Build_Number,
+
+SQL_Edition,
+
+#_Of_DTS_Stored_In_Instance,
+
+#_OF_SSIS_Stored_In_Instance,
+
+DB_NAME,
+
+Business_Area,
+
+Application_Name,
+
+DB_Owner,
+
+Complexity,
+
+Sensitivity,
+
+Size_Mb,
+
+Prod_UAT_DEV,
+
+Third_party
+
+FROM
+
+#Sheet
+
+DROP TABLE #Sheet
+
+
+

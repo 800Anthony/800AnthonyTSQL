@@ -1,0 +1,4 @@
+set transaction isolation level read uncommitted
+go
+select * FROM program.selections  TABLESAMPLE (50000 ROWS) where idmarket in (select idmarket from program.vwMarketsToArch) 
+select * FROM program.markets     TABLESAMPLE (50000 ROWS) where idevent    in (select idevent from program.vweventsToArch) 

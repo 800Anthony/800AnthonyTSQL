@@ -1,0 +1,54 @@
+ALTER PROCEDURE [sp_ForEachDB]
+    @statement    nvarchar(max),
+    @replacechar  nchar(1)      = N'?',
+    @name_pattern nvarchar(500) = NULL
+AS
+BEGIN
+ 
+    SET NOCOUNT ON
+ 
+    DECLARE @sql nvarchar(max)
+ 
+    -- LEVEL 3:
+    -- Build an intermediate statement that replaces the '?' char
+    SET @sql = 'SET @statement = REPLACE(@statement,'''+ @replacechar +''',DB_NAME()); EXEC(@statement);'
+    SET @sql = REPLACE(@sql, '''', '''''')
+    SET @sql = 'N''' + @sql + ''''
+ 
+    -- LEVEL 2:
+    -- Build a statement to execute on each database context
+    ;WITH dbs AS (
+        SELECT *,
+            system_db = CASE WHEN name IN ('master','model','msdb','tempdb') THEN 1 ELSE 0 END
+        FROM sys.databases
+        WHERE   DATABASEPROPERTY(name, 'IsSingleUser') = 0
+            AND HAS_DBACCESS(name) = 1
+            AND state_desc = 'ONLINE'
+    )
+    SELECT @sql = (
+        SELECT
+            'EXEC ' + QUOTENAME(name) + '.sys.sp_executesql ' +
+                @sql + ',' +
+                'N''@statement nvarchar(max)'',' +
+                '@statement;' AS [text()]
+        FROM dbs
+        WHERE 1 =
+                CASE
+                    -- No filter? Return all databases
+                    WHEN @name_pattern IS NULL      THEN 1
+                    -- User databases
+                    WHEN @name_pattern = '[USER]'   THEN system_db + 1
+                    -- System databases
+                    WHEN @name_pattern = '[SYSTEM]' THEN system_db
+                    -- LIKE filter
+                    WHEN name LIKE @name_pattern    THEN 1
+                END
+        ORDER BY name
+        FOR XML PATH('')
+    )
+ 
+    -- LEVEL 1:
+    -- Execute multi-db sql and pass in the actual statement
+    EXEC sp_executeSQL @sql, N'@statement nvarchar(max)', @statement
+ 
+END

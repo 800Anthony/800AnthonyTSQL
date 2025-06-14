@@ -1,0 +1,124 @@
+﻿
+
+
+USE master
+
+go
+
+CREATE SERVER AUDIT [SQLAudit]
+
+TO FILE
+
+( FILEPATH = N'\\LONSS0247\SQLAuditLog'
+
+,MAXSIZE = 100 MB
+
+,MAX_ROLLOVER_FILES = 10
+
+,RESERVE_DISK_SPACE = OFF
+
+)
+
+WITH
+
+( QUEUE_DELAY = 2000
+
+,ON_FAILURE = CONTINUE
+
+)
+
+ALTER SERVER AUDIT [SQLAudit]
+
+WITH (STATE = ON);
+
+go
+
+USE [master]
+
+GO
+
+
+
+CREATE SERVER AUDIT SPECIFICATION [InstanceAudit]
+
+FOR SERVER AUDIT [SQLAudit]
+
+ADD (DATABASE_ROLE_MEMBER_CHANGE_GROUP),
+
+ADD (SERVER_ROLE_MEMBER_CHANGE_GROUP),
+
+ADD (DATABASE_OBJECT_PERMISSION_CHANGE_GROUP),
+
+ADD (SERVER_PERMISSION_CHANGE_GROUP),
+
+ADD (FAILED_LOGIN_GROUP),
+
+ADD (DATABASE_CHANGE_GROUP),
+
+ADD (DATABASE_OBJECT_CHANGE_GROUP),
+
+ADD (DATABASE_PRINCIPAL_CHANGE_GROUP),
+
+ADD (SERVER_OBJECT_CHANGE_GROUP)
+
+WITH (STATE = ON)
+
+GO
+
+EXEC master..sp_MSForeachdb '
+
+USE [?]
+
+IF ''?'' <> ''master'' AND ''?'' <> ''model'' AND ''?'' <> ''msdb'' AND
+''?'' <> ''tempdb''
+
+BEGIN
+
+CREATE DATABASE AUDIT SPECIFICATION [DatabaseAuditSpecification-?]
+
+FOR SERVER AUDIT [SQLAudit]
+
+ADD (DELETE ON DATABASE::[?] BY [dbo]),
+
+ADD (EXECUTE ON DATABASE::[?] BY [dbo]),
+
+ADD (INSERT ON DATABASE::[?] BY [dbo]),
+
+ADD (UPDATE ON DATABASE::[?] BY [dbo]);
+
+ALTER DATABASE AUDIT SPECIFICATION [DatabaseAuditSpecification-?] WITH
+(STATE = ON)
+
+END
+
+ 
+
+ 
+
+/*
+
+ALTER SERVER AUDIT [SQLAudit] WITH (STATE = Off);
+
+drop SERVER AUDIT [SQLAudit]
+
+alter server AUDIT SPECIFICATION instanceaudit with (state=off)
+
+DROP SERVER AUDIT SPECIFICATION [InstanceAudit]
+
+EXEC sp_MSForEachDB '
+
+USE [?];
+
+alter DATABASE AUDIT SPECIFICATION [DatabaseAuditSpecification-?] with
+(state=off)
+
+drop DATABASE AUDIT SPECIFICATION [DatabaseAuditSpecification-?]
+
+'
+
+ 
+
+*/
+
+
+

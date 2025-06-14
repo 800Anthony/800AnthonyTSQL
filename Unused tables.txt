@@ -1,0 +1,23 @@
+﻿With Unused_Tables (Table_Name, Row_Count, Created_Date, Last_Modified_Date,
+Last_User_Lookup, Last_User_Scan, Last_User_Seek, Last_User_Update) 
+AS ( 
+  SELECT AO.name AS Table_Name
+     ,PS.row_count AS Row_Count
+     ,AO.create_date AS Created_Date
+     ,AO.modify_date AS Last_Modified_Date
+	 ,ius.last_user_lookup AS Last_User_Lookup
+	 ,ius.last_user_scan AS Last_User_Scan
+	 ,ius.last_user_seek AS Last_User_Seek
+	 ,ius.last_user_update AS Last_User_Update
+  FROM sys.all_objects  AO 
+     JOIN sys.dm_db_partition_stats PS ON OBJECT_NAME(PS.object_id)=AO.name
+	 LEFT JOIN sys.dm_db_index_usage_stats ius ON OBJECT_NAME(ius.object_id)=AO.name
+  WHERE AO.type ='U' 
+  
+)
+SELECT  distinct * FROM Unused_Tables
+Where ISNULL(Last_User_Lookup,'1900-01-01')<DATEADD(month, -1, GETDATE()) AND 
+      ISNULL(Last_User_Scan,'1900-01-01')<DATEADD(month, -1, GETDATE()) AND
+	  ISNULL(Last_User_Seek,'1900-01-01')<DATEADD(month, -1, GETDATE()) AND 
+	  ISNULL(Last_User_Update,'1900-01-01')<DATEADD(month, -1, GETDATE())
+ORDER BY Row_Count DESC

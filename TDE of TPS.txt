@@ -1,0 +1,70 @@
+--pre-tde
+
+SELECT TOP (1000) [Id]
+      ,[Name]
+  FROM [TPS].[Analysis].[TxTable] WITH (nolock)
+  go 500
+
+--02:57 for 3000 rows
+--encryption started at 1033
+
+--initial encryption
+
+SELECT TOP (1000) [Id]
+      ,[Name]
+  FROM [TPS].[Analysis].[TxTable] WITH (nolock)
+  go 500
+
+--02:57 for 3000 rows
+
+
+--#1 Verify each replica instance has a Database Master Key (DMK) in Master – if not, create one
+
+USE MASTER
+GO
+SELECT * FROM sys.symmetric_keys WHERE name = '##MS_DatabaseMasterKey##'
+
+CREATE MASTER KEY ENCRYPTION BY PASSWORD = 'jPl(pIy^8jn8hYx#e9%ShaCo*7k2o@';
+
+--#2 Create a Server Certificate on the primary replica instance
+
+USE MASTER
+GO
+CREATE CERTIFICATE TDE_TPS_EncryptionCert
+WITH SUBJECT = 'TDE Certificate for the TPS database'
+
+SELECT name, pvt_key_encryption_type_desc, thumbprint FROM sys.certificates
+
+--#3 Back up the Server Certificate on the primary replica instance
+
+USE MASTER
+BACKUP CERTIFICATE TDE_TPS_EncryptionCert
+TO FILE = 'TDE_TPS_EncryptionCert'
+WITH PRIVATE KEY (FILE = 'TDE_TPS_PrivateFile',
+ENCRYPTION BY PASSWORD = 't45Ub4o1&iO0748q*m$4qpZi184WV971')
+
+--#4 Create the Server Certificate on each secondary & DR replica instance using the files created in Step 3
+
+CREATE CERTIFICATE TDE_TPS_EncryptionCert
+FROM FILE = '<path_where_copied>\TDE_TPS_EncryptionCert'
+WITH PRIVATE KEY 
+(   FILE = '<path_where_copied>\TDE_TPS_PrivateFile',
+    DECRYPTION BY PASSWORD = 't45Ub4o1&iO0748q*m$4qpZi184WV971')
+
+--#5 Create the Database Encryption Key on the Primary Replica Instance
+
+USE TPS
+GO
+CREATE DATABASE ENCRYPTION KEY
+    WITH ALGORITHM = AES_256
+    ENCRYPTION BY SERVER CERTIFICATE TDE_TPS_EncryptionCert
+
+--#6 Turn on Database Encryption on the Primary Replica Instance
+
+ALTER DATABASE TPS SET ENCRYPTION ON
+
+--#7 Check encryption progress
+
+SELECT db_name(database_id), encryption_state, 
+    encryptor_thumbprint, encryptor_type, percent_complete
+    FROM sys.dm_database_encryption_keys

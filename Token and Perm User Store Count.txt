@@ -1,0 +1,3 @@
+select name, count(*) from sys.dm_os_memory_cache_entries
+group by name
+order by count(*) desc ;

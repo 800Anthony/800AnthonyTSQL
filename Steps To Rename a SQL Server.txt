@@ -1,0 +1,18 @@
+#1
+--for a Default Instance
+sp_dropserver 
+GO
+sp_addserver , local
+GO
+
+--for a Named Instance
+sp_dropserver <'old_physical_server_name\instancename'>
+GO
+sp_addserver <'new_name\instancename'>, local
+GO
+
+#2
+Now restart SQL Server services
+
+#3
+Run select @@servername to verify the updated system metadata

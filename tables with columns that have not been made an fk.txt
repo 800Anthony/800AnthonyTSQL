@@ -1,0 +1,145 @@
+declare @sch varchar(50),@tbl varchar(50), @col1 varchar(50)='idevent',@col2 varchar(50)='idmarket',@col3 varchar(50)='idselection'
+
+select a.*,b.fk_constraint_name into #stg from
+(
+SELECT       schema_name(schema_id) sch, t.name AS 'TableName',c.name  AS 'ColumnName'          
+FROM        sys.columns c
+JOIN        sys.tables  t   ON c.object_id = t.object_id
+)a
+left join
+(
+select 
+    schema_name(pk_tab.schema_id)pk_schema,  pk_tab.name as pk_table,schema_name(fk_tab.schema_id) fk_schema,  fk_tab.name as fk_table,
+    substring(column_names, 1, len(column_names)-1) as [fk_column],		
+    fk.name as fk_constraint_name
+from sys.foreign_keys fk
+    inner join sys.tables fk_tab
+        on fk_tab.object_id = fk.parent_object_id
+    inner join sys.tables pk_tab
+        on pk_tab.object_id = fk.referenced_object_id
+    cross apply (select col.[name] + ', '
+                    from sys.foreign_key_columns fk_c
+                        inner join sys.columns col
+                            on fk_c.parent_object_id = col.object_id
+                            and fk_c.parent_column_id = col.column_id
+                    where fk_c.parent_object_id = fk_tab.object_id
+                      and fk_c.constraint_object_id = fk.object_id
+                            order by col.column_id
+                            for xml path ('') ) D (column_names) 
+)b
+
+
+on a.sch=b.fk_schema and a.TableName=b.fk_table and a.ColumnName=b.fk_column
+where a.ColumnName in (@col1,@col2,@col3) and a.sch not like '%arch%'
+
+select sch,TableName,ColumnName,case when fk_constraint_name is null then 0 else 1 end fk into #stg2 from #stg
+select sch,TableName,max(fk) maxfk into #stg3 from #stg2
+group by sch,TableName
+
+select * from
+(
+select sch,tablename, case maxfk when 0  then 'yes' else 'no' end Orphan from #stg3
+)a
+where Orphan ='yes'
+order by 1,2
+
+drop table #stg
+drop table #stg2
+drop table #stg3
+---------------------------------------------------------------------
+declare @tbl1 varchar(50)='program.events',@tbl2 varchar(50)='program.markets', @tbl3 varchar(50)='program.selections',@col1 varchar(50)='idevent',@col2 varchar(50)='idmarket',@col3 varchar(50)='idselection'
+
+select a.*,b.fk_constraint_name into #stg from
+(
+SELECT       schema_name(schema_id) sch, t.name AS 'TableName',c.name  AS 'ColumnName'          
+FROM        sys.columns c
+JOIN        sys.tables  t   ON c.object_id = t.object_id
+)a
+left join
+(
+select 
+    schema_name(pk_tab.schema_id)pk_schema,  pk_tab.name as pk_table,schema_name(fk_tab.schema_id) fk_schema,  fk_tab.name as fk_table,
+    substring(column_names, 1, len(column_names)-1) as [fk_column],		
+    fk.name as fk_constraint_name
+from sys.foreign_keys fk
+    inner join sys.tables fk_tab
+        on fk_tab.object_id = fk.parent_object_id
+    inner join sys.tables pk_tab
+        on pk_tab.object_id = fk.referenced_object_id
+    cross apply (select col.[name] + ', '
+                    from sys.foreign_key_columns fk_c
+                        inner join sys.columns col
+                            on fk_c.parent_object_id = col.object_id
+                            and fk_c.parent_column_id = col.column_id
+                    where fk_c.parent_object_id = fk_tab.object_id
+                      and fk_c.constraint_object_id = fk.object_id
+                            order by col.column_id
+                            for xml path ('') ) D (column_names) 
+)b
+
+
+on a.sch=b.fk_schema and a.TableName=b.fk_table and a.ColumnName=b.fk_column
+where a.ColumnName in (@col1,@col2,@col3) and a.sch not like '%arch%'
+
+select sch,TableName,ColumnName,case when fk_constraint_name is null then 0 else 1 end fk into #stg2 from #stg
+
+
+select sch,tablename into #stg3 from #stg2
+group by sch,tablename
+having max(fk)=0
+order by 1,2
+
+select a.* into #stg4 from #stg2 a join #stg3 b
+on a.sch=b.sch and a.TableName=b.TableName 
+order by 1,2,3
+
+select sch,tablename,columnname,''as hasinvaliddata into ##stg5 from #stg4
+where sch+'.'+tablename not in ('program.events','program.markets','program.selections')
+
+/* Set up variables to hold the current record we're working on */
+DECLARE @sch varchar(50), @tbl varchar(50),@col varchar(50),@sql varchar(max)
+
+DECLARE cursor_results CURSOR FOR
+  SELECT sch,tablename,columnname from ##stg5
+
+OPEN cursor_results
+FETCH NEXT FROM cursor_results into @sch,@tbl,@col
+WHILE @@FETCH_STATUS = 0
+BEGIN 
+	if @col='idevent'
+	begin
+  set @sql='update ##stg5 set hasinvaliddata = (select count(*) from '+@sch+'.'+@tbl +' with(nolock) where idevent not in (select idevent from program.events with (nolock))) 
+				where sch='+''''+@sch+''''+' and tablename='+''''+@tbl+''''+ ' and columnname='+''''+@col+''''
+				print @sql
+	exec (@sql)
+	end
+		if @col='idmarket'
+	begin
+  set @sql='update ##stg5 set hasinvaliddata = (select count(*) from '+@sch+'.'+@tbl +' with(nolock) where idmarket not in (select idmarket from program.markets with (nolock))) 
+				where sch='+''''+@sch+''''+' and tablename='+''''+@tbl+''''+ ' and columnname='+''''+@col+''''
+	exec (@sql)
+	end
+	if @col='idselection'
+	begin
+  set @sql='update ##stg5 set hasinvaliddata = (select count(*) from '+@sch+'.'+@tbl +' with(nolock) where idselection not in (select idselection from program.selections with (nolock))) 
+				where sch='+''''+@sch+''''+' and tablename='+''''+@tbl+''''+ ' and columnname='+''''+@col+''''
+	exec (@sql)
+	end
+FETCH NEXT FROM cursor_results into @sch,@tbl,@col
+END
+
+/* Clean up our work */
+CLOSE cursor_results;
+DEALLOCATE cursor_results;
+
+select * from ##stg5
+
+drop table #stg
+drop table #stg2
+drop table #stg3
+drop table #stg4
+drop table ##stg5
+
+
+
+----------------------------------------------------------------------------

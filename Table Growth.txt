@@ -1,0 +1,137 @@
+USE [Utilities]
+GO
+
+/****** Object:  Table [dbo].[TableGrowth]    Script Date: 07/23/2013 13:41:34 ******/
+SET ANSI_NULLS ON
+GO
+
+SET QUOTED_IDENTIFIER ON
+GO
+
+CREATE TABLE [dbo].[TableGrowth](
+	[TimeKey] [datetime] NOT NULL,
+	[Table_ID] [int] NOT NULL,
+	[Table_Name] [sysname] NOT NULL,
+	[Row_Count] [bigint] NULL,
+	[Reserved_Bytes] [bigint] NULL,
+	[Data_Bytes] [bigint] NULL,
+	[Index_Bytes] [bigint] NULL,
+	[Unused_Bytes] [bigint] NULL
+) ON [PRIMARY]
+
+GO
+
+
+
+
+BEGIN
+   DECLARE  @id            INT
+   DECLARE  @type          CHARACTER(2)
+   DECLARE  @pages         BIGINT
+   DECLARE  @dbname        SYSNAME
+   DECLARE  @dbsize        DEC(15,0)
+   DECLARE  @bytesperpage  DEC(15,0)
+   DECLARE  @pagesperMB    DEC(15,0)
+   DECLARE  @low           INT 
+  
+   -- DECLARE A TABLE VARIABLE TO HOLD THE RESULTS.  BECAUSE WE'RE NOT TALKING ABOUT MASSIVE
+   -- AMOUNTS OF DATA, IT'S MUCH BETTER TO HAVE IN A TEMP TABLE VARIABLE BECAUSE THAT (USUALLY) PUTS 
+   -- THE INTERMEDIATE RESULTS ALL IN RAM.  IF YOU USE A TEMP TABLE THEN IT WRITES TO THE
+   -- TEMPDB AND/OR TEMPDB LOG 
+   DECLARE  @tmpTblSpace TABLE 
+   (
+      objid    INT NULL,
+      rows     BIGINT NULL,
+      reserved DEC(15) NULL,
+      data     DEC(15) NULL,
+      indexp   DEC(15) NULL,
+      unused   DEC(15) NULL
+   )
+  
+   SET NOCOUNT ON
+  
+   -- Create a cursor to loop through the user tables
+   DECLARE c_tables CURSOR  FOR
+   SELECT id
+   FROM   sysobjects
+   WHERE  xtype = 'U'
+  
+   -- NOW OPEN THE CURSOR, LOOP THROUGH THE TABLES AND INSERT INTO
+   -- THE TEMPORARY TABLE VARIABLE.
+   OPEN c_tables
+   FETCH NEXT FROM c_tables
+   INTO @id
+   WHILE @@FETCH_STATUS = 0
+     BEGIN
+       /* Code stolen from the sp_spaceused proc from MSSQL */
+       INSERT INTO @tmpTblSpace
+                  (objid,
+                   reserved)
+       SELECT objid = @id,
+              SUM(reserved)
+       FROM   sysindexes
+       WHERE  indid IN (0,1,255)
+              AND id = @id
+      
+       SELECT @pages = SUM(dpages)
+       FROM   sysindexes
+       WHERE  indid < 2
+              AND id = @id
+      
+       SELECT @pages = @pages + Isnull(SUM(used),0)
+       FROM   sysindexes
+       WHERE  indid = 255
+              AND id = @id
+      
+       UPDATE @tmpTblSpace
+       SET    data = @pages
+       WHERE  objid = @id
+      
+       /* index: sum(used) where indid in (0, 1, 255) - data */
+       UPDATE @tmpTblSpace
+       SET    indexp = (SELECT SUM(used)
+                        FROM   sysindexes
+                        WHERE  indid IN (0,1,255)
+                               AND id = @id) - data
+       WHERE  objid = @id
+      
+       /* unused: sum(reserved) - sum(used) where indid in (0, 1, 255) */
+       UPDATE @tmpTblSpace
+       SET    unused = reserved - (SELECT SUM(used)
+                                   FROM   sysindexes
+                                   WHERE  indid IN (0,1,255)
+                                          AND id = @id)
+       WHERE  objid = @id
+      
+       UPDATE @tmpTblSpace
+       SET    rows = i.rows
+       FROM   sysindexes i
+       WHERE  i.indid < 2
+              AND i.id = @id
+              AND objid = @id
+      
+       FETCH NEXT FROM c_tables
+       INTO @id
+     END
+  
+   SELECT @low = d.low
+     FROM master.dbo.spt_values d
+    WHERE d.NUMBER = 1
+      AND d.TYPE = 'E' 
+   -- NOW THAT WE'VE COMPILED THE RESULTS, SELECT THEM FROM THE TABLE (VARIABLE) FOR ALL TO SEE.
+   -- (RESULTS ARE IN BYTES)
+   INSERT INTO Utilities..TableGrowth
+   SELECT  GetDate() TimeKey 
+           ,so.id   Table_ID
+           ,so.name Table_Name
+           ,CONVERT(BIGINT,spc.rows) Row_Count
+           ,CONVERT(BIGINT,Ltrim(Str(spc.reserved * @low,15,0))) Reserved_Bytes 
+           ,CONVERT(BIGINT,Ltrim(Str(spc.data * @low,15,0))) Data_Bytes
+           ,CONVERT(BIGINT,Ltrim(Str(spc.indexp * @low,15,0))) Index_Bytes
+           ,CONVERT(BIGINT,Ltrim(Str(spc.unused * @low,15,0))) Unused_Bytes
+   FROM                @tmpTblSpace spc
+            INNER JOIN sysobjects   so  ON spc.objid = so.id 
+   -- CLEANUP THE CURSOR
+   CLOSE c_tables
+   DEALLOCATE c_tables
+   END

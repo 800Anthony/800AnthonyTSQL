@@ -1,0 +1,10 @@
+DECLARE @sql NVARCHAR(MAX) = N'';
+
+-- Construct dynamic SQL to alter all logins
+SELECT @sql = @sql + N'ALTER LOGIN [' + name + '] WITH CHECK_POLICY = ON; '
+FROM sys.sql_logins;
+
+-- Execute the dynamic SQL statement
+EXEC sp_executesql @sql;
+
+PRINT 'Password policy enforcement enabled for all SQL logins.';

@@ -1,0 +1,11 @@
+EXEC msdb..sp_send_dbmail @profile_name=''dbasupport'',
+@recipients=''secure-banking@betking.com'',
+@subject=''Validated Withdrawals - ONLINE Players only'',
+@query= ''set nocount on exec [Reports].[OPS_GetOnlineValidatedWithdrawals]'',
+@attach_query_result_as_file = 1,
+@query_attachment_filename   = @dto,
+--@query_result_separator      = '','',
+@execute_query_database=''tps'',
+@query_result_header=0
+,@query_result_separator = ''|'',
+@query_result_no_padding = 1

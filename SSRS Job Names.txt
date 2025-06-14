@@ -1,0 +1,50 @@
+﻿
+
+
+;
+
+WITH cte ( job_id, job_name)
+
+AS ( SELECT DISTINCT
+
+j.job_id,
+
+j.name
+
+FROM msdb.dbo.sysjobs j
+
+INNER JOIN msdb.dbo.syscategories c ON j.category_id = c.category_id
+
+LEFT OUTER JOIN msdb.dbo.sysjobhistory jh ON j.job_id = jh.job_id
+
+WHERE c.name = 'Report Server'
+
+)
+
+SELECT x.job_name,
+
+c.name,
+
+c.path,
+
+su.description,
+
+'EXEC msdb..sp_start_job ''' + x.job_name + '''' AS SQLStatement
+
+FROM cte x
+
+INNER JOIN dbo.Schedule sc ON x.job_name = CONVERT(VARCHAR(100),
+sc.ScheduleID)
+
+INNER JOIN dbo.ReportSchedule rs ON sc.ScheduleID = rs.ScheduleID
+
+INNER JOIN dbo.Subscriptions su ON rs.SubscriptionID = su.SubscriptionID
+
+INNER JOIN dbo.Catalog c ON su.Report_OID = c.ItemID
+
+ORDER BY 3,
+
+2
+
+
+

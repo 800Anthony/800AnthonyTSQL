@@ -1,0 +1,145 @@
+﻿
+
+
+Developers (Support)
+
+ 
+
+NMR London
+GFA                          -         �
+�  NMRLON846
+
+ 
+
+NMR London BANKING                 
+-            NMRLON843
+
+ 
+
+NMR London OTHER                     -
+            NMRLON844
+
+ 
+
+NMR London HR                            -
+            NMRLON845
+
+ 
+
+NMR London OMNI                       -
+            NMRLON842
+
+ 
+
+NMR London
+IT                              -      �
+�      NMRLON911
+
+ 
+
+NMR London
+RPM                          -         �
+�   NMRLon889
+
+ 
+
+Application Managers (Support and Personal)
+
+ 
+
+NMRLON918 - RPM Application Managers Personal Accounts (Alex
+Campbell/Roland Piggott)
+
+BellJ
+
+AroraJ
+ 
+
+ 
+
+NMRLON916 - RPM Application Managers Support Accounts (Alex
+Campbell/Roland Piggott)
+
+JBell
+
+JArora
+ 
+
+ 
+
+NMRLON917 - GFA Application Managers Personal Accounts (Alex
+Campbell/Roland Piggott)
+
+NevilleJ
+
+HarveyG
+ 
+
+ 
+
+NMRLON600 - GFA Application Managers Support Accounts (Alex
+Campbell/Roland Piggott)
+
+JNeville
+
+GHarvey
+
+ 
+
+NMRLON653 - IT Application Managers Personal Accounts (Alex
+Campbell/Roland Piggott)
+
+NevilleJ
+
+HarveyG
+
+
+ 
+
+NMRLON605 - IT Application Managers Support Accounts (Alex
+Campbell/Roland Piggott)
+
+
+JNeville
+
+GHarvey
+
+ 
+
+NMRLON661 - NMR London Application Managers Banking Access (Alex
+Campbell/Roland Piggott)
+RTH\Jarora
+RTH\JBell
+
+ 
+
+NMRLON733 - Banking Application Managers Personal Accounts (Alex
+Campbell/Roland Piggott)
+
+AroraJ
+BellJ
+
+ 
+
+NMRLON873 - HR Application Managers Personal Accounts (Alex
+Campbell/Roland Piggott)
+
+LidsterM
+
+JonesJ
+
+HomewooT
+
+ 
+
+NMRLON874 - HR Application Managers Support Accounts (Alex
+Campbell/Roland Piggott)
+
+JJones
+
+THomewood
+
+ 
+
+
+

@@ -1,0 +1,28 @@
+select a.schema_name, a.table_or_view_name,a.modify_date from
+(
+select schema_name(schema_id) as schema_name,
+       name as table_or_view_name,
+       modify_date
+from sys.tables
+where modify_date > DATEADD(DAY, -30, CURRENT_TIMESTAMP) 
+union all
+select schema_name(schema_id) as schema_name,
+       name as table_or_view_name,
+       modify_date
+from sys.views
+where modify_date > DATEADD(DAY, -30, CURRENT_TIMESTAMP)
+
+)a,
+(
+SELECT distinct
+        referenced_schema_name,
+        referenced_entity_name
+    FROM
+        sys.dm_sql_referenced_entities (
+            '[feedproviders.kiron].proc_ResultsWithMarketsAndOdds_List',
+            'OBJECT') 
+)b
+where a.schema_name=b.referenced_schema_name and a.table_or_view_name=b.referenced_entity_name
+order by 1,2
+
+

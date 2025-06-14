@@ -1,0 +1,40 @@
+DECLARE @name VARCHAR(100)
+DECLARE @limit INT
+DECLARE @Duration_secs INT;
+
+DECLARE db_cursor CURSOR
+FOR
+SELECT JobName
+	,JobLimitSecs
+FROM DBAToolbox.dbo.LongRunningJobs
+
+OPEN db_cursor
+
+FETCH NEXT
+FROM db_cursor
+INTO @name
+	,@limit
+
+WHILE @@FETCH_STATUS = 0
+BEGIN
+	SELECT @Duration_secs = DATEDIFF(ss, ja.start_execution_date, GETDATE())
+	FROM msdb.dbo.sysjobs jobs
+	LEFT JOIN msdb.dbo.sysjobactivity ja ON ja.job_id = jobs.job_id
+		AND ja.start_execution_date IS NOT NULL
+	WHERE jobs.name = @name
+		AND stop_execution_date IS NULL;
+
+	IF @Duration_secs > @limit
+	BEGIN
+		EXEC msdb.dbo.sp_stop_job @name;
+	END;
+
+	FETCH NEXT
+	FROM db_cursor
+	INTO @name
+		,@limit
+END
+
+CLOSE db_cursor
+
+DEALLOCATE db_cursor

@@ -1,0 +1,70 @@
+﻿
+
+create table #inputbuffer
+(
+eventType varchar(255) ,
+parameters int ,
+procedureText varchar(max),
+spid varchar(6)
+)
+
+
+declare @spid varchar(6)
+declare @sql varchar(50)
+
+declare sprocket cursor fast_forward for
+select spid from master.dbo.sysprocesses
+where program_name is null or program_name <> ''
+
+open sprocket
+fetch next from sprocket into
+@spid
+
+while @@fetch_status = 0
+ begin
+  set @sql = 'dbcc inputbuffer(' + @spid + ') WITH NO_INFOMSGS '
+  insert into #inputbuffer(eventType, parameters, procedureText)
+  exec (@sql)
+  
+  update #inputbuffer
+   set spid = @spid
+  where spid is null
+  
+  fetch next from sprocket into
+  @spid
+ end
+
+close sprocket
+ deallocate sprocket
+
+-- CHECK TO SEE IF THE CURSOR IS STILL OPEN.
+if @@cursor_rows <> 0
+ begin
+  close sprocket
+   deallocate sprocket
+ end
+
+select DISTINCT sp.status,getdate() as StatsDateTime, @@servername as
+ServerName,
+        rtrim(db.name) as DBName, rtrim(hostname) as
+HostName,sp.SPID,
+        rtrim(program_name) as ProgramName, CAST(proceduretext AS
+VARCHAR(500)) [T-SQL],rtrim(nt_domain) as Domain,
+        rtrim(nt_username) as UserName, rtrim(net_address) as
+MACAddress,
+        rtrim(loginame) as LoginName,Login_Time,Last_Batch
+from master..sysprocesses sp
+join master..sysdatabases db
+        on sp.dbid = db.dbid
+        JOIN  #inputbuffer i ON sp.spid=i.spid
+
+ 
+
+-- IF THE TABLE STILL EXISTS (WHICH IT SHOULD) THEN DROP IT.
+if (object_id('#inputbuffer') is not null)
+            drop table #inputbuffer
+
+
+
+
+

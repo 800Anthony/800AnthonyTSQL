@@ -1,0 +1,8 @@
+SELECT
+    STATS_DATE(i.object_id, i.index_id) AS LastStatisticsDate
+        ,o.Name AS TableName
+        ,i.name AS IndexName
+    FROM sys.objects            o
+        INNER JOIN sys.indexes  i ON o.object_id = i.object_id
+    WHERE o.is_ms_shipped=0
+    ORDER BY 1 DESC

@@ -1,0 +1,17 @@
+﻿
+
+
+USE master
+GO
+ALTER DATABASE CoreDB 
+SET SINGLE_USER 
+WITH ROLLBACK IMMEDIATE
+GO
+EXEC master..sp_renamedb 'CoreDB','ProductsDB'
+GO
+ALTER DATABASE ProductsDB 
+SET MULTI_USER 
+GO
+
+
+

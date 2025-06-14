@@ -1,0 +1,6 @@
+CREATE CREDENTIAL [https://ukmaxdigfunctionapps.blob.core.windows.net/temp] 
+WITH IDENTITY = 'SHARED ACCESS SIGNATURE'
+, SECRET = 'sp=racwd&st=2023-07-05T08:27:27Z&se=2023-07-05T16:27:27Z&spr=https&sv=2022-11-02&sr=c&sig=ylFENuC8nb363bQnw3egY5fRGqWYkXRwUNlbvVAjk4k%3D'
+
+RESTORE DATABASE [aae2019] FROM URL =
+  'https://ukmaxdigfunctionapps.blob.core.windows.net/temp/aae2019_Jul_4_2023_4_47PM.bak'

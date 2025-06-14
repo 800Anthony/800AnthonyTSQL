@@ -1,0 +1,28 @@
+﻿
+
+
+Run this with sysadmin privilege on the target instance -
+
+CREATE CERTIFICATE <AppName>TDECert
+
+FROM FILE = '\\<Source Dataserver>\F$\MSSQL10_50.<Instance
+Name>\MSSQL\Backup\TDECert.cert'
+
+WITH PRIVATE KEY (
+
+FILE = '\\<Source Dataserver>\F$\MSSQL10_50.<Instance
+Name>\MSSQL\Backup\EncryptPrivateKey.key'
+
+, DECRYPTION BY PASSWORD = 'LON-DB-<Instance
+Name>-<DEV/PREPROD/PROD>_MASTER_CERT_<TDE Password>'
+
+)
+
+<TDE Password> can be found in the LON-DB-DBA-PROD,7004.DBA.DBO.Accounts
+table or its redundant copy PAR-DB-DBA-PROD,60012.DBA.DBO.Accounts (a
+copy will eventually be hosted in New York) This password will be
+changed quarterly and requires sysadmin access to read from the table.The
+DB restore can now proceed normally
+
+
+

@@ -1,0 +1,18 @@
+DECLARE @plan_handle varbinary(64)
+
+DECLARE db_cursor CURSOR FOR 
+SELECT plan_handle
+FROM sys.dm_exec_cached_plans
+WHERE objtype = 'Adhoc' -- and usecounts = 1 -- optional: just delete the ones that are used only once
+
+OPEN db_cursor  
+FETCH NEXT FROM db_cursor INTO @plan_handle  
+
+WHILE @@FETCH_STATUS = 0  
+BEGIN  
+    DBCC FREEPROCCACHE (@plan_handle);  
+    FETCH NEXT FROM db_cursor INTO @plan_handle 
+END 
+
+CLOSE db_cursor  
+DEALLOCATE db_cursor 

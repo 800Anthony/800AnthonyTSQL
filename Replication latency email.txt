@@ -1,0 +1,275 @@
+IF Object_ID('dbo.dba_replicationMonitor') IS NULL
+BEGIN
+	CREATE TABLE dbo.dba_replicationMonitor (
+		monitor_id INT Identity(1, 1) NOT NULL
+		,monitorDate SMALLDATETIME NOT NULL
+		,publicationName SYSNAME NOT NULL
+		,publicationDB SYSNAME NOT NULL
+		,iteration INT NULL
+		,tracer_id INT NULL
+		,distributor_latency INT NULL
+		,subscriber VARCHAR(1000) NULL
+		,subscriber_db VARCHAR(1000) NULL
+		,subscriber_latency INT NULL
+		,overall_latency INT NULL
+		);
+END;
+
+IF ObjectProperty(Object_ID('dbo.dba_replicationLatencyMonitor_sp'), N'IsProcedure') = 1
+BEGIN
+	DROP PROCEDURE dbo.dba_replicationLatencyMonitor_sp;
+
+	PRINT 'Procedure dba_replicationLatencyMonitor_sp dropped';
+END;
+GO
+
+SET QUOTED_IDENTIFIER ON
+GO
+
+SET ANSI_NULLS ON
+GO
+
+CREATE PROCEDURE dbo.dba_replicationLatencyMonitor_sp
+	/* Declare Parameters */
+	@publicationToTest SYSNAME = N'yourPublicationName'
+	,@publicationDB SYSNAME = N'yourPublicationDB'
+	,@replicationDelay VARCHAR(10) = N'00:00:30'
+	,@iterations INT = 5
+	,@iterationDelay VARCHAR(10) = N'00:00:30'
+	,@displayResults BIT = 0
+	,@deleteTokens BIT = 1
+	,@emailstring VARCHAR(max) = ''
+AS
+/*********************************************************************************
+    Name:       dba_replicationLatencyMonitor_sp
+ 
+    Purpose:    Retrieves the amount of replication latency in seconds
+ 
+    Notes:      Default settings will run 1 test every minute for 5 minutes.
+ 
+                @publicationToTest = defaults to yourPublicationName publication
+ 
+                @publicationDB = the database that is the source for the publication.
+				    The tracer procs are found in the publishing DB.
+ 
+                @replicationDelay = how long to wait for the token to replicate;
+                    probably should not set to anything less than 10 (in seconds)
+ 
+                @iterations = how many tokens you want to test
+ 
+                @iterationDelay = how long to wait between sending test tokens
+                    (in seconds)
+ 
+                @displayResults = print results to screen when complete
+ 
+                @deleteTokens = whether you want to retain tokens when done
+                
+                @emailstring=who the email alert goes to
+ 
+    Called by:  DBA
+ 
+*********************************************************************************
+    Exec dbo.dba_replicationLatencyMonitor_sp
+          @publicationToTest    = N'POCNASHSync'
+        , @publicationDB        = N'ExceliDB_NASH'
+        , @replicationDelay     = N'00:15:00'
+        , @iterations           = 1
+        , @iterationDelay       = N'00:00:05'
+        , @displayResults       = 1
+        , @deleteTokens         = 1
+        , @emailstring			='alexander.campbell@atos.net;'
+*********************************************************************************/
+SET NOCOUNT ON;
+SET XACT_ABORT ON;
+
+BEGIN
+	/* Declare Variables */
+	DECLARE @currentIteration INT
+		,@tokenID BIGINT
+		,@currentDateTime SMALLDATETIME
+		,@sqlStatement NVARCHAR(200)
+		,@parmDefinition NVARCHAR(500);
+	DECLARE @tokenResults TABLE (
+		iteration INT NULL
+		,tracer_id INT NULL
+		,distributor_latency INT NULL
+		,subscriber VARCHAR(1000) NULL
+		,subscriber_db VARCHAR(1000) NULL
+		,subscriber_latency INT NULL
+		,overall_latency INT NULL
+		);
+
+	/* Initialize our variables */
+	SELECT @currentIteration = 0
+		,@currentDateTime = GetDate();
+
+	WHILE @currentIteration < @iterations
+	BEGIN
+		/* Prepare the stored procedure execution string */
+		SET @sqlStatement = N'Execute ' + @publicationDB + N'.sys.sp_postTracerToken ' + N'@publication = @VARpublicationToTest , ' + N'@tracer_token_id = @VARtokenID OutPut;'
+		/* Define the parameters used by the sp_ExecuteSQL later */
+		SET @parmDefinition = N'@VARpublicationToTest sysname, ' + N'@VARtokenID bigint OutPut';
+
+		/* Insert a new tracer token in the publication database */
+		EXECUTE sp_executesql @sqlStatement
+			,@parmDefinition
+			,@VARpublicationToTest = @publicationToTest
+			,@VARtokenID = @TokenID OUTPUT;
+
+		/* Give a few seconds to allow the record to reach the subscriber */
+		WAITFOR DELAY @replicationDelay;
+
+		/* Prepare our statement to retrieve tracer token data */
+		SELECT @sqlStatement = 'Execute ' + @publicationDB + '.sys.sp_helpTracerTokenHistory ' + N'@publication = @VARpublicationToTest , ' + N'@tracer_id = @VARtokenID'
+			,@parmDefinition = N'@VARpublicationToTest sysname, ' + N'@VARtokenID bigint';
+
+		/* Store our results for retrieval later */
+		INSERT INTO @tokenResults (
+			distributor_latency
+			,subscriber
+			,subscriber_db
+			,subscriber_latency
+			,overall_latency
+			)
+		EXECUTE sp_executesql @sqlStatement
+			,@parmDefinition
+			,@VARpublicationToTest = @publicationToTest
+			,@VARtokenID = @TokenID;
+
+		/* Assign the iteration and token id to the results for easier investigation */
+		UPDATE @tokenResults
+		SET iteration = @currentIteration + 1
+			,tracer_id = @tokenID
+		WHERE iteration IS NULL;
+
+		/* Wait for the specified time period before creating another token */
+		WAITFOR DELAY @iterationDelay;
+
+		/* Avoid endless looping... :) */
+		SET @currentIteration = @currentIteration + 1;
+	END;
+
+	/* Display our results */
+	IF @displayResults = 1
+	BEGIN
+		SELECT iteration
+			,tracer_id
+			,IsNull(distributor_latency, 0) AS 'distributor_latency'
+			,subscriber
+			,subscriber_db
+			,IsNull(subscriber_latency, 0) AS 'subscriber_latency'
+			,IsNull(overall_latency, IsNull(distributor_latency, 0) + IsNull(subscriber_latency, 0)) AS 'overall_latency'
+		FROM @tokenResults;
+	END;
+
+	/* Store our results */
+	INSERT INTO dbo.dba_replicationMonitor (
+		monitorDate
+		,publicationName
+		,publicationDB
+		,iteration
+		,tracer_id
+		,distributor_latency
+		,subscriber
+		,subscriber_db
+		,subscriber_latency
+		,overall_latency
+		)
+	SELECT @currentDateTime
+		,@publicationToTest
+		,@publicationDB
+		,iteration
+		,tracer_id
+		,IsNull(distributor_latency, 0)
+		,subscriber
+		,subscriber_db
+		,IsNull(subscriber_latency, 0)
+		,IsNull(overall_latency, IsNull(distributor_latency, 0) + IsNull(subscriber_latency, 0))
+	FROM @tokenResults;
+
+	/* Delete the tracer tokens if requested */
+	IF @deleteTokens = 1
+	BEGIN
+		SELECT @sqlStatement = 'Execute ' + @publicationDB + '.sys.sp_deleteTracerTokenHistory ' + N'@publication = @VARpublicationToTest , ' + N'@cutoff_date = @VARcurrentDateTime'
+			,@parmDefinition = N'@VARpublicationToTest sysname, ' + N'@VARcurrentDateTime datetime';
+
+		EXECUTE sp_executesql @sqlStatement
+			,@parmDefinition
+			,@VARpublicationToTest = @publicationToTest
+			,@VARcurrentDateTime = @currentDateTime;
+	END;
+
+	DECLARE @overallatency INT
+
+	SELECT @overallatency = IsNull(distributor_latency, 0) + IsNull(subscriber_latency, 0)
+	FROM @tokenResults
+
+	DECLARE @blurb VARCHAR(max)
+
+	IF (
+			@overallatency > 0
+			AND @overallatency <= 2
+			)
+	BEGIN
+		SELECT @blurb = 'Dear all,
+
+Latency on the NASH reporting database has reached 5 minutes.
+
+Please raise a p3 ticket for Atos SQL and Axsys to investigate.
+
+Incident Details:             Users reporting NaSH ad hoc reports database not updating
+
+Business Impact:              This issue will affect Patient Summary updates and any reports (PRISM, AdHoc etc)
+
+Scope; All users
+
+Regards,
+
+Automatic Service
+'
+
+		EXEC msdb.dbo.sp_send_dbmail @recipients = @emailstring
+			,@subject = 'NASH Replication 5 Min Latency Alert'
+			,@body = @blurb
+			,@body_format = 'text'
+			,@profile_name = 'DBMail';
+	END
+
+	IF @overallatency >= 3
+	BEGIN
+		SELECT @blurb = 'Dear all,
+
+Latency on the NASH reporting database has reached 15 minutes.
+
+Please raise a p2 ticket for Atos SQL and Axsys to investigate.
+
+Incident Details:             Users reporting NaSH ad hoc reports database not updating
+
+Business Impact:              This issue will affect Patient Summary updates and any reports (PRISM, AdHoc etc)
+
+Scope; All users
+
+Regards,
+
+Automatic Service
+'
+
+		EXEC msdb.dbo.sp_send_dbmail @recipients = @emailstring
+			,@subject = 'NASH Replication 15 Min Latency Alert'
+			,@body = @blurb
+			,@body_format = 'text'
+			,@profile_name = 'DBMail';
+	END
+
+	SET NOCOUNT OFF;
+
+	RETURN 0;
+END
+GO
+
+SET QUOTED_IDENTIFIER OFF;
+GO
+
+SET ANSI_NULLS ON;
+GO
+

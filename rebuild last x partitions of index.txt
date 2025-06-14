@@ -1,0 +1,34 @@
+DECLARE
+      @PartitionNumber int --specify start partition number
+    , @EndPartitionNumber int, @tbl varchar(max)='reporting.CouponBetOddDetail', @ix varchar(max)='IX_CouponBetOddDetail_ColumnStore'
+
+--get last partition number
+SELECT @EndPartitionNumber = MAX(p.partition_number)
+FROM sys.indexes AS i
+JOIN sys.partitions AS p ON
+    p.object_id = i.object_id
+    AND p.index_id = i.index_id
+WHERE
+    i.object_id = OBJECT_ID(@tbl, 'U')
+    AND i.name = @ix; 
+
+	
+	set @PartitionNumber=@EndPartitionNumber-3
+
+--rebuild each partition individually    
+WHILE @PartitionNumber <= @EndPartitionNumber
+BEGIN
+
+    --RAISERROR('Rebuilding partition %d', 0, 0, @PartitionNumber) WITH NOWAIT;
+
+    print 'ALTER INDEX '+@ix +' '+'
+        ON '+@tbl + ' '+'
+        REBUILD Partition ='+ cast(@EndPartitionNumber as varchar(max)) +'
+        WITH(ONLINE=ON); '--specify desired online mode in SQL 2014 and later
+
+    --RAISERROR('Partition %d rebuild completed', 0, 0, @PartitionNumber) WITH NOWAIT;
+
+    SET @EndPartitionNumber -= 1;
+
+END;
+GO

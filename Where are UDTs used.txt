@@ -1,0 +1,21 @@
+﻿
+
+SELECT TOP 100 PERCENT WITH TIES
+       o.[name] [Table_Name]
+     , c.[name] [Column_Name]
+     , t.[name] [UDT]
+    FROM systypes t
+        INNER JOIN syscolumns c
+            on t.xusertype = c.xusertype
+        INNER JOIN sysobjects o
+             on c.id = o.id
+        INNER JOIN systypes u
+            on t.xtype = u.xusertype
+    WHERE
+           t.xusertype > 256
+          and o.type = 'u'
+    ORDER BY o.[Name]
+           , c.[Name]
+
+
+

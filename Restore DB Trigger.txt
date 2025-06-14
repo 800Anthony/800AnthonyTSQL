@@ -1,0 +1,15 @@
+﻿
+
+CREATE TRIGGER [dbo].[AfterRestore]
+ON [msdb].[dbo].[restorehistory]
+FOR INSERT
+AS
+
+DECLARE @DatabaseName AS VARCHAR(100)
+
+SELECT @DatabaseBName = destination_database_name
+FROM INSERTED
+
+IF @DBName = 'YourDB'
+
+

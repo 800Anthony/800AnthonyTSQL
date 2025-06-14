@@ -1,0 +1,8 @@
+﻿
+
+
+SELECT convert(varchar(max), convert(varbinary(max), content)) from
+reportservers0115.dbo.CATALOG WHERE NAME ='Mobile Costs by CC'
+
+
+

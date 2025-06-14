@@ -1,0 +1,137 @@
+﻿
+
+
+DECLARE @Errorlog TABLE
+
+(
+
+LogDate DATETIME,
+
+ProcessorInfo VARCHAR(100),
+
+ErrorMSG VARCHAR(2000)
+
+)
+
+INSERT INTO
+
+@Errorlog
+
+EXEC sp_executesql N'xp_readerrorlog 0,2'
+
+INSERT INTO
+
+@Errorlog
+
+EXEC sp_executesql N'xp_readerrorlog 0,1'
+
+DELETE FROM
+
+@Errorlog
+
+WHERE
+
+ErrorMSG LIKE '%Log was backed up%'
+
+OR ErrorMSG LIKE '%Setting database option COMPATIBILITY_LEVEL%'
+
+OR ErrorMSG LIKE '%were backed up%'
+
+OR ErrorMSG LIKE '%DBCC TRACEON%'
+
+OR ErrorMSG LIKE '%without errors%'
+
+OR ErrorMSG LIKE '%\ERRORLOG%'
+
+OR ErrorMSG LIKE '%Attempting to cycle errorlog%'
+
+OR ErrorMSG LIKE '%Errorlog has been reinitialized.%'
+
+OR ErrorMSG LIKE '%found 0 errors and repaired 0 errors.%'
+
+OR ErrorMSG LIKE '%without errors%'
+
+OR ErrorMSG LIKE '%This is an informational message%'
+
+OR ErrorMSG LIKE '%WARNING:%Failed to reserve contiguous memory%'
+
+OR ErrorMSG LIKE '%The error log has been reinitialized%'
+
+OR ErrorMSG LIKE '%Setting database option ANSI_WARNINGS%' ;
+
+
+
+SELECT
+
+Logdate,
+
+SUBSTRING(ErrorMSG, 1, 2000) Text
+
+INTO
+
+#temp
+
+FROM
+
+@Errorlog
+
+WHERE
+
+LogDate > DATEADD(dd, -1, GETDATE())
+
+AND ( ( ErrorMSG LIKE '%[1-9] error%'
+
+OR ErrorMSG LIKE '%[0-9][0-9] error%' )
+
+OR ErrorMSG LIKE '%fail%' )
+
+ORDER BY
+
+1 DESC
+
+
+
+SELECT
+
+MAX(logdate) logdate
+
+INTO
+
+#maxlogdate
+
+FROM
+
+#temp
+
+GROUP BY
+
+text
+
+
+
+SELECT
+
+t.*
+
+FROM
+
+#temp t,
+
+#maxlogdate m
+
+WHERE
+
+t.LogDate = m.logdate
+
+ORDER BY
+
+1 DESC
+
+DROP TABLE #temp
+
+DROP TABLE #maxlogdate
+
+
+
+
+

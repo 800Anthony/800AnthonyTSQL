@@ -1,0 +1,8 @@
+xp_cmdshell 'net use z: \\172.21.24.33\bak Badstone08!\" /user:ggc-apps1\acadmin2ca /persistent:yes'
+
+RESTORE DATABASE [NHSeFormsAudit2] FROM  
+DISK = N'Z:\NHSeFormsAudit_backup_201404290101.bak' 
+WITH  FILE = 1,  MOVE N'NHSeFormsAudit' TO N'D:\NHSeFormsAudit.mdf',  
+MOVE N'NHSeFormsAudit_log' TO N'D:\NHSeFormsAudit_log.ldf',  
+NOUNLOAD,  STATS = 1
+GO

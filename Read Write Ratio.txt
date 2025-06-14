@@ -1,0 +1,53 @@
+--uses a like comparison to only include databases you desire 
+DECLARE @databaseName SYSNAME
+	,@excludeLogFilesFlag BIT
+
+SET @databaseName = '%' --'%' gives all databases 
+SET @excludeLogFilesFlag = 1 --excludes log files by default because they would not be considered in the sys.dm_db_index_usage_stats numbers
+
+SELECT 'Ratio bases on magnitude of data - sys.dm_io_virtual_file_stats'
+
+SELECT CAST(SUM(num_of_bytes_read) AS DECIMAL) / (CAST(SUM(num_of_bytes_written) AS DECIMAL) + CAST(SUM(num_of_bytes_read) AS DECIMAL)) AS RatioOfReads
+	,CAST(SUM(num_of_bytes_written) AS DECIMAL) / (CAST(SUM(num_of_bytes_written) AS DECIMAL) + CAST(SUM(num_of_bytes_read) AS DECIMAL)) AS RatioOfWrites
+	,SUM(num_of_bytes_read) AS TotalBytesRead
+	,SUM(num_of_bytes_written) AS TotalBytesWritten
+FROM sys.dm_io_virtual_file_stats(NULL, NULL) AS divfs
+INNER JOIN sys.master_files mf ON mf.database_id = divfs.database_id
+	AND mf.file_id = divfs.file_id
+WHERE DB_NAME(divfs.database_id) LIKE @databaseName
+	AND (
+		mf.type_desc <> 'LOG'
+		OR @excludeLogFilesFlag = 0
+		)
+
+SELECT 'Ratio bases on numbers of operations-sys.dm_io_virtual_file_stats'
+
+SELECT CAST(SUM(num_of_reads) AS DECIMAL) / (CAST(SUM(num_of_writes) AS DECIMAL) + CAST(SUM(num_of_reads) AS DECIMAL)) AS RatioOfReads
+	,CAST(SUM(num_of_writes) AS DECIMAL) / (CAST(SUM(num_of_reads) AS DECIMAL) + CAST(SUM(num_of_writes) AS DECIMAL)) AS RatioOfWrites
+	,SUM(num_of_reads) AS TotalReadOperations
+	,SUM(num_of_writes) AS TotalWriteOperations
+FROM sys.dm_io_virtual_file_stats(NULL, NULL) AS divfs
+INNER JOIN sys.master_files mf ON mf.database_id = divfs.database_id
+	AND mf.file_id = divfs.file_id
+WHERE DB_NAME(divfs.database_id) LIKE @databaseName
+	AND (
+		mf.type_desc <> 'LOG'
+		OR @excludeLogFilesFlag = 0
+		)
+
+SELECT 'Ratio bases on numbers of operations - sys.dm_db_index_usage_stats'
+
+SELECT CASE 
+		WHEN (SUM(user_updates + user_seeks + user_scans + user_lookups) = 0)
+			THEN NULL
+		ELSE (CAST(SUM(user_seeks + user_scans + user_lookups) AS DECIMAL) / CAST(SUM(user_updates + user_seeks + user_scans + user_lookups) AS DECIMAL))
+		END AS RatioOfReads
+	,CASE 
+		WHEN (SUM(user_updates + user_seeks + user_scans + user_lookups) = 0)
+			THEN NULL
+		ELSE (CAST(SUM(user_updates) AS DECIMAL) / CAST(SUM(user_updates + user_seeks + user_scans + user_lookups) AS DECIMAL))
+		END AS RatioOfWrites
+	,SUM(user_updates + user_seeks + user_scans + user_lookups) AS TotalReadOperations
+	,SUM(user_updates) AS TotalWriteOperations
+FROM sys.dm_db_index_usage_stats AS ddius
+WHERE DB_NAME(database_id) LIKE @databaseName

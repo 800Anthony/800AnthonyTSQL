@@ -1,0 +1,3 @@
+ALTER INDEX [IX_CouponBetOddDetail_ColumnStore]
+  ON reporting.CouponBetOddDetail
+    REBUILD PARTITION = 121 WITH (ONLINE = ON);

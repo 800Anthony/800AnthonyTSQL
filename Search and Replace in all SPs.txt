@@ -1,0 +1,57 @@
+﻿
+
+Powershell....
+
+ 
+
+ 
+
+[void][System.Reflection.Assembly]::LoadWithPartialName("Microsoft.SqlServe
+­r.ConnectionInfo")
+[void][System.Reflection.Assembly]::LoadWithPartialName("Microsoft.SqlServe
+­r.Smo")
+
+
+$server = new-object "Microsoft.SqlServer.Management.Smo.Server"
+"SERVERNAME"
+
+
+foreach ($database in $server.Databases) {
+if ($database.Name -match "DATABASENAME") {
+foreach ($sp in $database.StoredProcedures) {
+if ($sp.TextBody -match "TEXT1") {
+$sp.Script() | Out-File ([string]$server.name + "_" +
+[string]$database.Name + " " + [string]$sp.name + ".sql")
+$sp.TextBody = $sp.TextBody -replace("TEXT1", "TEXT2")
+$sp.Alter()
+
+ 
+
+}
+}
+}
+}
+
+ 
+
+ 
+
+T-SQL....
+
+ 
+
+
+SELECT name,
+
+REPLACE(object_definition(object_id), 'OLDTEXT', 'NEWTEXT') AS [text]
+
+FROM sys.objects
+
+WHERE [type] = 'P'
+
+AND object_definition(object_id) IS NOT NULL
+
+AND CHARINDEX('@errr', object_definition(object_id)) > 0
+
+
+

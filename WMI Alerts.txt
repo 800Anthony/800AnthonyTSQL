@@ -1,0 +1,197 @@
+﻿
+
+
+--enable mail XPs
+
+sp_configure 'show advanced options', 1;
+
+GO
+
+RECONFIGURE;
+
+GO
+
+sp_configure 'Database Mail XPs', 1;
+
+GO
+
+RECONFIGURE;
+
+GO
+
+-- Create a Database Mail account
+
+EXECUTE msdb.dbo.sysmail_add_account_sp
+
+@account_name = 'DBA',
+
+@description = 'Mail account for administrative e-mail.',
+
+@email_address = 'globalitdbateam@internal.rothschild.com',
+
+@display_name = 'DBA Automated Mailer',
+
+@mailserver_name = 'smtp.gb.rothschild.com' ;
+
+-- Create a Database Mail profile
+
+EXECUTE msdb.dbo.sysmail_add_profile_sp
+
+@profile_name = 'DBA Administrator Profile',
+
+@description = 'Profile used for administrative mail.' ;
+
+-- Add the account to the profile
+
+EXECUTE msdb.dbo.sysmail_add_profileaccount_sp
+
+@profile_name = 'DBA Administrator Profile',
+
+@account_name = 'DBA',
+
+@sequence_number =1 ;
+
+-- Grant access to the profile to the DBMailUsers role
+
+USE [msdb]
+
+GO
+
+CREATE USER [RTH\RTHAdm077] FOR LOGIN [RTH\RTHAdm077]
+
+GO
+
+USE [msdb]
+
+GO
+
+EXEC sp_addrolemember N'DatabaseMailUserRole', N'RTH\RTHAdm077'
+
+GO
+
+EXECUTE msdb.dbo.sysmail_add_principalprofile_sp
+
+@profile_name = 'DBA Administrator Profile',
+
+@principal_name = 'RTH\rthadm077', --This is the Global DBA domain group
+
+@is_default = 1 ;
+
+--Adds Operator for Job Notification
+
+
+
+USE [msdb]
+
+GO
+
+EXEC msdb.dbo.sp_add_operator @name=N'DBA',
+
+@enabled=1,
+
+@pager_days=0,
+
+@email_address=N'globalitdbateam@internal.rothschild.com'
+
+GO
+
+
+
+-- Enable SQL Server Agent to use Database Mail profile (in Alert System
+tab)
+
+USE [msdb]
+
+GO
+
+EXEC MASTER.dbo.xp_instance_regwrite N'HKEY_LOCAL_MACHINE',
+
+N'SOFTWARE\Microsoft\MSSQLServer\SQLServerAgent', N'DatabaseMailProfile',
+
+N'REG_SZ', N'DBA Administrator Profile'
+
+GO
+
+--stop Agent
+
+ALTER DATABASE msdb SET ENABLE_BROKER
+
+--start Agent
+
+USE [msdb]
+
+EXEC msdb.dbo.sp_set_sqlagent_properties @alert_replace_runtime_tokens=1
+
+GO
+
+--add alert
+
+EXEC msdb.dbo.sp_add_alert @name=N'New Database Created',
+
+@message_id=0, @severity=0,
+
+@enabled=1,
+
+@delay_between_responses=0,
+
+@include_event_description_in=1,
+
+@notification_message=N'Database $(ESCAPE_NONE(WMI(DatabaseName))) has
+been created on $(ESCAPE_NONE(WMI(ComputerName))) by
+$(ESCAPE_NONE(WMI(LoginName)))',
+
+@category_name=N'[Uncategorized]',
+
+@wmi_namespace=N'\\.\root\Microsoft\SqlServer\ServerEvents\<INSTANCE
+NAME>', @wmi_query=N'Select * from CREATE_DATABASE'
+
+go
+
+--add operator
+
+EXEC msdb.dbo.sp_add_operator @name=N'DBA',
+
+@enabled=1,
+
+@pager_days=0,
+
+@email_address=N'globalitdbateam@internal.rothschild.com'
+
+GO
+
+
+
+EXEC msdb.dbo.sp_add_notification @alert_name=N'New Database Created',
+@operator_name=N'DBA', @notification_method = 1
+
+GO
+
+USE [msdb]
+
+GO
+
+EXEC msdb.dbo.sp_set_sqlagent_properties @email_save_in_sent_folder=1
+
+GO
+
+EXEC master.dbo.xp_instance_regwrite N'HKEY_LOCAL_MACHINE',
+N'SOFTWARE\Microsoft\MSSQLServer\SQLServerAgent', N'UseDatabaseMail',
+N'REG_DWORD', 1
+
+GO
+
+EXEC master.dbo.xp_instance_regwrite N'HKEY_LOCAL_MACHINE',
+N'SOFTWARE\Microsoft\MSSQLServer\SQLServerAgent', N'DatabaseMailProfile',
+N'REG_SZ', N'DBA Administrator Profile'
+
+GO
+
+---unclick enable mail profile in Agent properties. Hit OK
+
+--now re-enable
+
+--Agent may have be restarted a few times and the mail profile enabled in
+the Agent a few times!
+
+
+

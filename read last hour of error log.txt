@@ -1,0 +1,17 @@
+DECLARE @HOURS INT
+SET @HOURS = 1
+
+CREATE TABLE #ErrorLog
+(LogDate DateTime, ProcessInfo Varchar(50),
+[Text] Varchar(4000))
+
+INSERT INTO #ErrorLog
+EXEC sp_readerrorlog
+
+DELETE FROM #ErrorLog
+WHERE LogDate < CAST(DATEADD(HH,-@HOURS,
+GETDATE()) AS VARCHAR(23))
+
+SELECT * FROM #ErrorLog  order by 1 desc
+
+DROP TABLE #ErrorLog

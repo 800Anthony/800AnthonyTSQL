@@ -1,0 +1,1549 @@
+
+use dbatoolbox 
+go
+-- Create table to hold output of stored procedure
+IF OBJECT_ID('dbo.SQL_RSS') IS NULL
+begin
+CREATE TABLE SQL_RSS (
+BlogTitle VARCHAR(400) not null,
+BlogUrl VARCHAR(MAX),
+BlogDate VARCHAR(MAX),
+BlogDescription VARCHAR(MAX)
+)
+ALTER TABLE SQL_RSS ADD CONSTRAINT PK_sqlrss PRIMARY KEY NONCLUSTERED
+( BlogTitle ASC )
+WITH (IGNORE_DUP_KEY = ON) ON [PRIMARY]
+end
+go
+
+CREATE PROCEDURE [dbo].[httpGET]
+(
+	@url NVARCHAR(4000),
+	@ResponseText NVARCHAR(MAX) OUTPUT
+)
+AS
+BEGIN
+	BEGIN TRY
+		DECLARE @Object as Int;
+		 
+		EXEC sp_OACreate 'MSXML2.XMLHTTP', @Object OUT;
+		EXEC sp_OAMethod @Object, 'open', NULL, 'GET', @url,'false';
+		EXEC sp_OAMethod @Object, 'send', null;
+	
+		DECLARE @TABLEVAR TABLE (responseXml VARCHAR(MAX))
+		INSERT INTO @TABLEVAR
+			EXEC sp_OAGetProperty @Object, 'responseText';
+		SET @ResponseText = '';
+		
+		SELECT @ResponseText = responseXml FROM @TABLEVAR
+
+	END TRY
+	BEGIN CATCH
+		print 'Exception in httpGET';
+	END CATCH
+    Exec sp_OADestroy @Object;
+END
+
+GO
+CREATE PROCEDURE [dbo].[LatestBlogPosts]
+(
+	@url NVARCHAR(4000)
+)
+AS
+BEGIN
+	BEGIN TRY
+		DECLARE @ResponseText as NVARCHAR(MAX) = '';
+		EXEC [dbo].[httpGET] @url = @url, @ResponseText = @ResponseText OUTPUT;
+
+		DECLARE @xml XML = cast(REPLACE(@ResponseText, 'encoding="UTF-8"', '') as xml);
+		
+		insert into dbo.SQL_RSS
+		SELECT  x.xmlNode.value('(title)[1]', 'varchar(400)') as BlogTitle,
+				x.xmlNode.value('(link)[1]', 'varchar(max)') as BlogUrl,
+				x.xmlNode.value('(pubDate)[1]', 'varchar(max)') as BlogDate,
+				x.xmlNode.value('(description)[1]', 'varchar(max)') as BlogDescription
+		FROM @xml.nodes('/rss/channel/item') x(xmlNode)
+
+	END TRY
+	BEGIN CATCH
+		print 'Exception';
+	END CATCH
+END
+GO
+
+sp_configure 'show advanced options', 1;  
+GO  
+RECONFIGURE;  
+GO  
+sp_configure 'Ole Automation Procedures', 1;  
+GO  
+RECONFIGURE;  
+GO  
+
+EXEC [dbo].[LatestBlogPosts] @url = 'https://techcommunity.microsoft.com/plugins/custom/microsoft/o365/custom-blog-rss?tid=-3738804542841453105&board=SQLServer&label=SQLReleases&messages=&size=10';
+go
+sp_configure 'show advanced options', 1;
+GO
+RECONFIGURE;
+GO
+sp_configure 'Ole Automation Procedures', 0;
+GO
+RECONFIGURE;
+GO
+DROP  PROCEDURE [dbo].[httpGET]
+DROP PROCEDURE [dbo].[LatestBlogPosts]
+
+declare @currentcu int, @latestcu int
+select @currentcu=currentcu,@latestcu=latestcu from
+(
+select top 1 2017 as SQLVer,cast(substring(cast(SERVERPROPERTY('ProductUpdateLevel') as varchar(max)),3,2) as int) CurrentCU ,
+cast(SUBSTRING(BlogTitle,CHARINDEX('#',BlogTitle)+1,2) as int) LatestCU ,  
+cast(RIGHT(LEFT(BlogDate, LEN(BlogDate)-13) , LEN(LEFT(BlogDate, LEN(BlogDate)-13) ) - 4) as date) 
+as NotificationDate 
+from dbo.SQL_RSS where BlogTitle like '%cum%sql server 2017%' 
+order by 4 desc, 3 desc
+)ver
+
+update dbatoolbox..kpi set value=@currentcu,target='CU'+cast(@latestcu as varchar(5)) where category='patching'
+
+if @currentcu=@latestcu
+begin
+update dbatoolbox..kpi set amber=@currentcu, red=@currentcu where category='patching' --pass
+end
+else
+begin
+update dbatoolbox..kpi set amber=@currentcu, red=9999 where category='patching' --amber
+end
+
+
+use virtuals 
+go
+
+
+--Gather and report on most resource hungry queries
+DECLARE @Reportinginterval INT;
+DECLARE @Database SYSNAME;
+DECLARE @StartDateText VARCHAR(30);
+DECLARE @TotalExecutions BIGINT;
+DECLARE @TotalDuration BIGINT;
+DECLARE @TotalCPU BIGINT;
+DECLARE @TotalLogicalReads BIGINT;
+DECLARE @TotalLogicalWrites BIGINT;
+DECLARE @SQL VARCHAR(MAX);
+
+exec dbatoolbox.dbo.populatekpi
+
+select @Database=db.name FROM master.sys.dm_hadr_database_replica_states rs
+JOIN master.sys.databases db ON rs.database_id = db.database_id
+WHERE is_local = 1 AND is_primary_replica = 1
+
+--Set Reporting interval in days
+SET @Reportinginterval = 1;
+SET @StartDateText = CAST(DATEADD(DAY, - @Reportinginterval, GETUTCDATE()) AS VARCHAR(30));
+
+--Cursor to step through the databases
+DECLARE curDatabases CURSOR FAST_FORWARD
+FOR
+SELECT [name]
+FROM sys.databases
+WHERE is_query_store_on = 1 and [name] =@Database
+
+--Temp table to store the results
+DROP TABLE
+
+IF EXISTS #Stats;
+	CREATE TABLE #Stats (
+		DatabaseName SYSNAME
+		,SchemaName SYSNAME NULL
+		,ObjectName SYSNAME NULL
+		,QueryText VARCHAR(1000)
+		,TotalExecutions BIGINT
+		,TotalDuration BIGINT
+		,TotalCPU BIGINT
+		,TotalLogicalReads BIGINT
+		,TotalLogicalWrites BIGINT
+		);
+
+OPEN curDatabases;
+
+FETCH NEXT
+FROM curDatabases
+INTO @Database;
+
+--Loop through the datbases and gather the stats
+WHILE @@FETCH_STATUS = 0
+BEGIN
+	SET @SQL = '
+	   USE [' + @Database + 
+		']
+	   INSERT intO #Stats
+	   SELECT 
+		  DB_NAME(),
+		  s.name AS SchemaName,
+		  o.name AS ObjectName,
+		  SUBSTRING(t.query_sql_text,1,1000) AS QueryText,
+		  SUM(rs.count_executions) AS TotalExecutions,
+		  SUM(rs.avg_duration * rs.count_executions) AS TotalDuration,
+		  SUM(rs.avg_cpu_time * rs.count_executions) AS TotalCPU,
+		  SUM(rs.avg_logical_io_reads * rs.count_executions) AS TotalLogicalReads ,
+			SUM(rs.avg_logical_io_writes * rs.count_executions) AS TotalLogicalWrites
+	   FROM sys.query_store_query q
+	   INNER JOIN sys.query_store_query_text t
+		  ON q.query_text_id = t.query_text_id
+	   INNER JOIN sys.query_store_plan p
+		  ON q.query_id = p.query_id
+	   INNER JOIN sys.query_store_runtime_stats rs
+		  ON p.plan_id = rs.plan_id
+	   INNER JOIN sys.query_store_runtime_stats_interval rsi
+		  ON rs.runtime_stats_interval_id = rsi.runtime_stats_interval_id
+	   LEFT JOIN sys.objects o
+		  ON q.OBJECT_ID = o.OBJECT_ID
+	   LEFT JOIN sys.schemas s
+		  ON o.schema_id = s.schema_id     
+	   WHERE rsi.start_time > ''' 
+		+ @StartDateText + '''
+	   GROUP BY s.name, o.name, SUBSTRING(t.query_sql_text,1,1000)
+	   OPTION(RECOMPILE);';
+
+	EXEC (@SQL);
+
+	FETCH NEXT
+	FROM curDatabases
+	INTO @Database;
+END;
+
+CLOSE curDatabases;
+
+DEALLOCATE curDatabases;
+
+--Aggregate some totals
+SELECT @TotalExecutions = SUM(TotalExecutions)
+	,@TotalDuration = SUM(TotalDuration)
+	,@TotalCPU = SUM(TotalCPU)
+	,@TotalLogicalReads = SUM(TotalLogicalReads)
+	,@TotalLogicalWrites = SUM(TotalLogicalWrites)
+FROM #Stats
+
+--Produce output
+SELECT TOP 10 DatabaseName
+	,SchemaName
+	,ObjectName
+	,QueryText
+	,TotalLogicalReads
+	,cast(round(cast((cast(TotalLogicalReads AS FLOAT) / cast(@TotalLogicalReads AS FLOAT)) * 100 AS float),2) as varchar(5)) AS [TotalLogicalReads %]
+			,cast((cast(TotalLogicalReads AS FLOAT) / cast(TotalExecutions AS FLOAT)) AS NUMERIC(19, 2)) AS [AverageLogicalReads]
+into #TableA FROM #Stats
+--Order by the resource you're most interested in
+--ORDER BY TotalExecutions DESC
+--ORDER BY TotalDuration DESC
+--ORDER BY TotalCPU DESC
+ORDER BY TotalLogicalReads DESC
+--ORDER BY TotalLogicalWrites DESC
+
+SELECT TOP 10 DatabaseName
+	,SchemaName
+	,ObjectName
+	,QueryText
+	,TotalLogicalWrites
+	,cast(round(cast((cast(TotalLogicalWrites AS FLOAT) / cast(@TotalLogicalWrites AS FLOAT)) * 100 AS float),2) as varchar(5)) AS [TotalLogicalWrites %]
+			,cast((cast(TotalLogicalWrites AS FLOAT) / cast(TotalExecutions AS FLOAT)) AS NUMERIC(19, 2)) AS [AverageLogicalWrites]
+into #TableB FROM #Stats
+--Order by the resource you're most interested in
+--ORDER BY TotalExecutions DESC
+--ORDER BY TotalDuration DESC
+--ORDER BY TotalCPU DESC
+ORDER BY TotalLogicalWrites DESC
+--ORDER BY TotalLogicalWrites DESC
+
+
+SELECT TOP 10 DatabaseName
+	,SchemaName
+	,ObjectName
+	,QueryText
+	,TotalDuration as [TotalDuration (μs)]
+	,cast(round(cast((cast(TotalDuration AS FLOAT) / cast(@TotalDuration AS FLOAT)) * 100 AS float),2) as varchar(5)) AS [TotalDuration %]
+			,cast((cast(TotalDuration AS FLOAT) / cast(TotalExecutions AS FLOAT)) AS NUMERIC(19, 2)) AS [AverageDuration (μs)]
+into #TableC FROM #Stats
+--Order by the resource you're most interested in
+--ORDER BY TotalExecutions DESC
+--ORDER BY TotalDuration DESC
+--ORDER BY TotalCPU DESC
+ORDER BY TotalDuration DESC
+--ORDER BY TotalDuration DESC
+
+--- "Recent" workload - last 24 hour
+DECLARE @recent_start_time datetimeoffset;
+DECLARE @recent_end_time datetimeoffset;
+SET @recent_start_time = DATEADD(hour, -24, SYSUTCDATETIME());
+SET @recent_end_time = SYSUTCDATETIME();
+
+--- "History" workload
+DECLARE @history_start_time datetimeoffset;
+DECLARE @history_end_time datetimeoffset;
+SET @history_start_time = DATEADD(hour, -168, SYSUTCDATETIME());
+SET @history_end_time = SYSUTCDATETIME();
+
+WITH
+hist AS
+(
+    SELECT
+        p.query_id query_id,
+        ROUND(ROUND(CONVERT(FLOAT, SUM(rs.avg_duration * rs.count_executions)) * 0.001, 2), 2) AS total_duration,
+        SUM(rs.count_executions) AS count_executions,
+        COUNT(distinct p.plan_id) AS num_plans
+     FROM sys.query_store_runtime_stats AS rs
+        JOIN sys.query_store_plan AS p ON p.plan_id = rs.plan_id
+    WHERE (rs.first_execution_time >= @history_start_time
+               AND rs.last_execution_time < @history_end_time)
+        OR (rs.first_execution_time <= @history_start_time
+               AND rs.last_execution_time > @history_start_time)
+        OR (rs.first_execution_time <= @history_end_time
+               AND rs.last_execution_time > @history_end_time)
+    GROUP BY p.query_id
+),
+recent AS
+(
+    SELECT
+        p.query_id query_id,
+        ROUND(ROUND(CONVERT(FLOAT, SUM(rs.avg_duration * rs.count_executions)) * 0.001, 2), 2) AS total_duration,
+        SUM(rs.count_executions) AS count_executions,
+        COUNT(distinct p.plan_id) AS num_plans
+    FROM sys.query_store_runtime_stats AS rs
+        JOIN sys.query_store_plan AS p ON p.plan_id = rs.plan_id
+    WHERE  (rs.first_execution_time >= @recent_start_time
+               AND rs.last_execution_time < @recent_end_time)
+        OR (rs.first_execution_time <= @recent_start_time
+               AND rs.last_execution_time > @recent_start_time)
+        OR (rs.first_execution_time <= @recent_end_time
+               AND rs.last_execution_time > @recent_end_time)
+    GROUP BY p.query_id
+)
+SELECT top 10 
+    results.query_id AS query_id,
+    results.query_text AS query_text,
+		sch+'.'+		parent_object parent,
+    cast(results.additional_duration_workload as bigint)  AS additional_duration_workload,
+    cast(results.total_duration_recent as bigint)  AS total_duration_recent,
+		cast(results.total_duration_recent as bigint) / cast(ISNULL(results.count_executions_recent, 0) as bigint) as avg_duration_recent,
+    cast(results.total_duration_hist as bigint)  AS total_duration_hist,
+		cast(results.total_duration_hist as bigint) / cast(ISNULL(results.count_executions_hist, 0) as bigint) as avg_duration_hist,
+    cast(ISNULL(results.count_executions_recent, 0) as bigint) AS count_executions_recent,
+    cast(ISNULL(results.count_executions_hist, 0) as bigint) AS count_executions_hist
+into #TableD
+FROM
+(
+    SELECT
+        hist.query_id AS query_id,
+        qt.query_sql_text AS query_text,
+				SCHEMA_NAME(s.Schema_ID) sch,
+				object_name(q.object_id) AS parent_object,
+        ROUND(CONVERT(float, recent.total_duration/
+                   recent.count_executions-hist.total_duration/hist.count_executions)
+               *(recent.count_executions), 2) AS additional_duration_workload,
+        ROUND(recent.total_duration, 2) AS total_duration_recent,
+        ROUND(hist.total_duration, 2) AS total_duration_hist,
+        recent.count_executions AS count_executions_recent,
+        hist.count_executions AS count_executions_hist
+    FROM hist
+        JOIN recent
+            ON hist.query_id = recent.query_id
+        JOIN sys.query_store_query AS q
+            ON q.query_id = hist.query_id
+        JOIN sys.query_store_query_text AS qt
+            ON q.query_text_id = qt.query_text_id
+						join sys.objects s on s.object_id=q.object_id
+) AS results
+WHERE additional_duration_workload > 0
+ORDER BY additional_duration_workload DESC
+OPTION (MERGE JOIN);
+
+
+-- statistics with more than 10% change
+SELECT top 10
+    [sch].[name] + '.' + [so].[name] AS [TableName],
+    [ss].[name] AS [Statistic],
+    convert(varchar, [sp].[last_updated], 0) AS [StatsLastUpdated], 
+    [sp].[rows] AS [RowsInTable], 
+    [sp].[modification_counter] AS [RowModifications],
+    CAST(100 * [sp].[modification_counter] / [sp].[rows]
+                            AS DECIMAL(18,2)) AS [PercentChange]
+into #tableE
+FROM [sys].[stats] [ss]
+JOIN [sys].[objects] [so] ON [ss].[object_id] = [so].[object_id]
+JOIN [sys].[schemas] [sch] ON [so].[schema_id] = [sch].[schema_id]
+OUTER APPLY [sys].[dm_db_stats_properties]
+                    ([so].[object_id], [ss].[stats_id]) sp
+WHERE [so].[type] = 'U'
+AND CAST(100 * [sp].[modification_counter] / [sp].[rows]
+                                        AS DECIMAL(18,2)) >= 10.00
+																				and [sp].[rows]>10000
+ORDER BY 6 DESC;
+
+
+
+	select * into #TableF from
+	(
+	select db db_, avg(iops) [Day 1 Avg IOPS], avg(bps)/1000000 [Day 1 Avg MBPS]
+	from
+	(
+	    SELECT   @database db 
+           , ROUND((SUM(num_of_reads + num_of_writes))/(avg(sample_ms)/1000), 4) AS IOPS
+           , ROUND((SUM(num_of_bytes_read + num_of_bytes_written))/(avg(sample_ms)/1000),2) AS BPS, tstamp
+      FROM [DBAToolbox].[dbo].[IOLatency] 
+			where tstamp >= DATEADD(day,-1, GETDATE()) and db=@database
+			group by tstamp
+			)a
+			group by db
+			)q,
+			(
+			select * from
+			(
+	select avg(iops) [Week 1 Avg IOPS], avg(bps)/1000000 [Week 1 Avg MBPS]
+	from
+	(
+	    SELECT   @database db 
+           , ROUND((SUM(num_of_reads + num_of_writes))/(avg(sample_ms)/1000), 4) AS IOPS
+           , ROUND((SUM(num_of_bytes_read + num_of_bytes_written))/(avg(sample_ms)/1000),2) AS BPS, tstamp
+      FROM [DBAToolbox].[dbo].[IOLatency] 
+			where tstamp >= DATEADD(day,-7, GETDATE()) and db=@database
+			group by tstamp
+			)a
+			group by db
+			)w,
+
+				(
+	select db, avg(iops) [Week 2 Avg IOPS], avg(bps)/1000000 [Week 2 Avg MBPS]
+	from
+	(
+	    SELECT   @database db 
+           , ROUND((SUM(num_of_reads + num_of_writes))/(avg(sample_ms)/1000), 4) AS IOPS
+           , ROUND((SUM(num_of_bytes_read + num_of_bytes_written))/(avg(sample_ms)/1000),2) AS BPS, tstamp
+      FROM [DBAToolbox].[dbo].[IOLatency] 
+			where tstamp between DATEADD(day,-14, GETDATE()) and DATEADD(day,-8, GETDATE()) and db=@database
+			group by tstamp
+			)a2
+			group by db
+			)q2,
+
+
+			(
+			SELECT  top 1  cast(ROUND((SUM(num_of_reads + num_of_writes))/(avg(sample_ms)/1000), 4) as varchar(max)) + ' '+ '(@'+cast(tStamp as varchar(max))+')' AS [Day 1 Max IOPS]
+      FROM [DBAToolbox].[dbo].[IOLatency] 
+			where tstamp >= DATEADD(day,-1, GETDATE()) and db=@database
+			group by tstamp
+			order by ROUND((SUM(num_of_reads + num_of_writes))/(avg(sample_ms)/1000), 4) desc
+			)x,
+			(
+			SELECT  top 1  cast(format(ROUND((SUM(num_of_bytes_read + num_of_bytes_written))/(avg(sample_ms)/1000)/1000000, 4),'N0') as varchar(max))  + ' '+ '(@'+cast(tStamp as varchar(max))+')' AS [Day 1 Max MBPS]
+      FROM [DBAToolbox].[dbo].[IOLatency] 
+			where tstamp >= DATEADD(day,-1, GETDATE()) and db=@database
+			group by tstamp
+			order by ROUND((SUM(num_of_bytes_read + num_of_bytes_written))/(avg(sample_ms)/1000)/1000000, 4) desc
+			)y
+			)r,
+			(
+			SELECT  top 1  cast(ROUND((SUM(num_of_reads + num_of_writes))/(avg(sample_ms)/1000), 4) as varchar(max)) + ' '+ '(@'+cast(tStamp as varchar(max))+')' AS [Week 1 Max IOPS]
+      FROM [DBAToolbox].[dbo].[IOLatency] 
+			where tstamp >= DATEADD(day,-7, GETDATE()) and db=@database
+			group by tstamp
+			order by ROUND((SUM(num_of_reads + num_of_writes))/(avg(sample_ms)/1000), 4) desc
+			)m,
+			(
+		
+			SELECT  top 1  cast(format(ROUND((SUM(num_of_bytes_read + num_of_bytes_written))/(avg(sample_ms)/1000)/1000000, 4),'N0') as varchar(max)) + ' '+ '(@'+cast(tStamp as varchar(max))+')' AS [Week 1 Max MBPS]
+      FROM [DBAToolbox].[dbo].[IOLatency] 
+			where tstamp >= DATEADD(day,-7, GETDATE()) and db=@database
+			group by tstamp
+			order by ROUND((SUM(num_of_bytes_read + num_of_bytes_written))/(avg(sample_ms)/1000)/1000000, 4) desc
+			)y,
+						(
+			SELECT  top 1  cast(ROUND((SUM(num_of_reads + num_of_writes))/(avg(sample_ms)/1000), 4) as varchar(max)) + ' '+ '(@'+cast(tStamp as varchar(max))+')' AS [Week 2 Max IOPS]
+      FROM [DBAToolbox].[dbo].[IOLatency] 
+			where tstamp between DATEADD(day,-14, GETDATE()) and DATEADD(day,-8, GETDATE()) and db=@database
+			group by tstamp
+			order by ROUND((SUM(num_of_reads + num_of_writes))/(avg(sample_ms)/1000), 4) desc
+			)m2,
+						(
+		
+			SELECT  top 1  cast(format(ROUND((SUM(num_of_bytes_read + num_of_bytes_written))/(avg(sample_ms)/1000)/1000000, 4),'N0') as varchar(max)) + ' '+ '(@'+cast(tStamp as varchar(max))+')' AS [Week 2 Max MBPS]
+      FROM [DBAToolbox].[dbo].[IOLatency] 
+			where tstamp between DATEADD(day,-14, GETDATE()) and DATEADD(day,-8, GETDATE()) and db=@database
+			group by tstamp
+			order by ROUND((SUM(num_of_bytes_read + num_of_bytes_written))/(avg(sample_ms)/1000)/1000000, 4) desc
+			)y2
+
+
+
+
+
+select * into #TableG from (
+select a.DB,b.AG,a.Replica,[Day_1_Avg_Secondary_Lag],[Week_1_Avg_Secondary_Lag],[Week_2_Avg_Secondary_Lag]
+
+from
+(
+select [database] DB,AG,[Server] Replica, avg(log_send_queue_size) [Day_1_Avg_Send_Queue_Size], avg(redo_queue_size) [Day_1_Avg_Redo_Queue_Size],
+avg(log_send_rate) [Day_1_Avg_Send_Rate],avg(redo_rate)[Day_1_Avg_Redo_Rate],avg(secondary_lag_seconds) [Day_1_Avg_Secondary_Lag] from dbatoolbox..ag_lag_hist 
+where tstamp >= DATEADD(day,-1, GETDATE()) and [database]=@database and [Server]<>@@SERVERNAME and DATEPART(hour, tstamp) NOT BETWEEN 0 AND 8
+group by [database],AG,[server]
+)a,
+(
+select [database] DB,AG,[Server] Replica, avg(log_send_queue_size) [Week_1_Avg_Send_Queue_Size], avg(redo_queue_size) [Week_1_Avg_Redo_Queue_Size],
+avg(log_send_rate) [Week_1_Avg_Send_Rate],avg(redo_rate)[ Week_1_Avg_Redo_Rate],avg(secondary_lag_seconds) [Week_1_Avg_Secondary_Lag] from dbatoolbox..ag_lag_hist 
+where tstamp >= DATEADD(day,-7, GETDATE()) and [database]=@database and [Server]<>@@SERVERNAME and DATEPART(hour, tstamp) NOT BETWEEN 0 AND 8
+group by [database],AG,[server]
+)b,
+(
+select [database] DB,AG,[Server] Replica, avg(log_send_queue_size) [Week_2_Avg_Send_Queue_Size], avg(redo_queue_size) [Week_2_Avg_Redo_Queue_Size],
+avg(log_send_rate) [Week_2_Avg_Send_Rate],avg(redo_rate)[ Week_2_Avg_Redo_Rate],avg(secondary_lag_seconds) [Week_2_Avg_Secondary_Lag] from dbatoolbox..ag_lag_hist 
+where tstamp between DATEADD(day,-14, GETDATE()) and DATEADD(day,-8, GETDATE()) and [database]=@database and [Server]<>@@SERVERNAME and DATEPART(hour, tstamp) NOT BETWEEN 0 AND 8
+group by [database],AG,[server]
+)c
+where a.DB=b.DB and a.AG=b.AG and a.Replica=b.Replica
+)c,
+(
+select top 1 cast(secondary_lag_seconds as varchar(max)) + ' '+ '(@'+cast(tStamp as varchar(max))+')'  [Day_1_Max_Secondary_Lag] from dbatoolbox..ag_lag_hist 
+where tstamp >= DATEADD(day,-1, GETDATE()) and [database]=@database and DATEPART(hour, tstamp) NOT BETWEEN 0 AND 8  order by secondary_lag_seconds desc 
+)d,
+(
+select top 1 cast(secondary_lag_seconds as varchar(max)) + ' '+ '(@'+cast(tStamp as varchar(max))+')'  [Week_1_Max_Secondary_Lag] from dbatoolbox..ag_lag_hist 
+where tstamp >= DATEADD(day,-7, GETDATE()) and [database]=@database  and DATEPART(hour, tstamp) NOT BETWEEN 0 AND 8 order by secondary_lag_seconds desc
+)e,
+(
+select top 1 cast(secondary_lag_seconds as varchar(max)) + ' '+ '(@'+cast(tStamp as varchar(max))+')'  [Week_2_Max_Secondary_Lag] from dbatoolbox..ag_lag_hist 
+where tstamp between DATEADD(day,-14, GETDATE()) and DATEADD(day,-8, GETDATE()) and [database]=@database and DATEPART(hour, tstamp) NOT BETWEEN 0 AND 8 order by secondary_lag_seconds desc 
+)f
+
+
+
+select * into #TableH from
+(
+select [Day 1 Avg], cast([Day 1 Max] as varchar(max)) + ' '+ '(@'+cast(tStamp as varchar(max))+')' AS [Day 1 Max] from 
+(
+select avg(cpu_sql) [Day 1 Avg], max(cpu_sql) [Day 1 Max] from DBAToolbox.dbo.CPU_Hist 
+where tstamp >= DATEADD(day,-1, GETDATE()) 
+)a,
+(select top 1 cpu_sql, tstamp from DBAToolbox.dbo.CPU_Hist where tstamp >= DATEADD(day,-1, GETDATE())  order by 1 desc, 2 desc)q
+
+
+)b,
+(
+select [Week 1 Avg], cast([Week 1 Max] as varchar(max)) + ' '+ '(@'+cast(tStamp as varchar(max))+')' AS [Week 1 Max] from 
+(
+select avg(cpu_sql) [Week 1 Avg], max(cpu_sql) [Week 1 Max] from DBAToolbox.dbo.CPU_Hist 
+where tstamp >= DATEADD(day,-7, GETDATE()) 
+)a,
+(select top 1 cpu_sql, tstamp from DBAToolbox.dbo.CPU_Hist where tstamp >= DATEADD(day,-7, GETDATE())  order by 1 desc, 2 desc)q
+
+
+)b2,
+(
+select [Week 2 Avg], cast([Week 2 Max] as varchar(max)) + ' '+ '(@'+cast(tStamp as varchar(max))+')' AS [Week 2 Max] from 
+(
+select avg(cpu_sql) [Week 2 Avg], max(cpu_sql) [Week 2 Max] from DBAToolbox.dbo.CPU_Hist 
+where tstamp between DATEADD(day,-14, GETDATE()) and DATEADD(day,-8, GETDATE()) 
+)a,
+(select top 1 cpu_sql, tstamp from DBAToolbox.dbo.CPU_Hist where tstamp between DATEADD(day,-14, GETDATE()) and DATEADD(day,-8, GETDATE()) order by 1 desc, 2 desc)b
+
+
+)c
+
+
+--select tStamp,TotalHotRows from  dbatoolbox.dbo.HotRowCount
+
+select a.tStamp,a.TotalHotRows,a.[% Delta] HotDelta ,b.TotalWarmRows,b.[% Delta] WarmDelta  into #TableI from
+(
+SELECT top 10 m.tStamp, m.TotalHotRows, tmp.percentChange [% Delta]
+FROM dbatoolbox.dbo.HotRowCount m
+LEFT JOIN(
+  
+	SELECT 
+  mT.tStamp AS secondDate, 
+  cast(cast(round(cast(cast(100 as float)* ( (cast(mT.TotalHotRows as float) - cast(m.TotalHotRows as float))/cast(m.TotalHotRows as float)) as float),6)  as decimal (20,15)) as decimal(10,6))AS percentChange
+  FROM dbatoolbox.dbo.HotRowCount m
+  JOIN dbatoolbox.dbo.HotRowCount mT ON m.tStamp < mT.tStamp AND mT.tStamp = (SELECT MIN(tStamp) FROM dbatoolbox.dbo.HotRowCount WHERE tStamp > m.tStamp)
+) tmp ON tmp.secondDate = m.tStamp
+order by 1 desc
+)a left join
+(
+SELECT top 10 m.tStamp, m.TotalWarmRows, tmp.percentChange [% Delta] 
+FROM dbatoolbox.dbo.WarmRowCount m
+LEFT JOIN(
+  SELECT 
+  mT.tStamp AS secondDate, 
+  cast(cast(round(cast(cast(100 as float)* ( (cast(mT.TotalWarmRows as float) - cast(m.TotalWarmRows as float))/cast(m.TotalWarmRows as float)) as float),6)  as decimal (20,15)) as decimal(10,6))AS percentChange
+  FROM dbatoolbox.dbo.WarmRowCount m
+  JOIN dbatoolbox.dbo.WarmRowCount mT ON m.tStamp < mT.tStamp AND mT.tStamp = (SELECT MIN(tStamp) FROM dbatoolbox.dbo.WarmRowCount WHERE tStamp > m.tStamp)
+) tmp ON tmp.secondDate = m.tStamp
+order by 1 desc
+)b
+
+on CAST(CONVERT(CHAR(16), a.tStamp) AS datetime)=CAST(CONVERT(CHAR(16), b.tStamp) AS datetime)
+
+
+
+declare @maxmem float
+select @maxmem=cast(value as float)/cast(1024 as float)
+FROM sys.configurations
+WHERE name like '%max server memory%'  
+
+select * into #TableJ 
+from
+(
+select *, round((@maxmem/cast(4 as float))* cast(300 as float),0) [Page Life Expectancy Threshold] 
+from
+(
+select avg(cntr_value) [Day 1 Avg Page Life Expectancy] from dbatoolbox.dbo.dm_os_performance_counters 
+where date_stamp >= DATEADD(day,-1, GETDATE())  and [object_name] LIKE '%Manager%' and [counter_name] = 'Page life expectancy'
+)a,
+(
+select avg(cntr_value) [Week 1 Avg Page Life Expectancy] from dbatoolbox.dbo.dm_os_performance_counters 
+where date_stamp >= DATEADD(day,-7, GETDATE())  and [object_name] LIKE '%Manager%' and [counter_name] = 'Page life expectancy'
+)b,
+(
+select avg(cntr_value) [Week 2 Avg Page Life Expectancy] from dbatoolbox.dbo.dm_os_performance_counters 
+where date_stamp between DATEADD(day,-14, GETDATE()) and DATEADD(day,-8, GETDATE())  and [object_name] LIKE '%Manager%' and [counter_name] = 'Page life expectancy'
+)c
+
+)x,
+(
+SELECT (1.0*avg(cntr_value)/128) /
+(SELECT 1.0*avg(cntr_value)
+FROM dbatoolbox.dbo.dm_os_performance_counters
+WHERE object_name like '%Buffer Manager%' and date_stamp >= DATEADD(day,-1, GETDATE()) 
+AND lower(counter_name) = 'page life expectancy')
+AS [Day 1 Avg Buffer Pool Rate]
+FROM dbatoolbox.dbo.dm_os_performance_counters
+WHERE object_name like '%Buffer Manager%'
+AND counter_name = 'database pages' and date_stamp >= DATEADD(day,-1, GETDATE()) 
+)z,
+(
+SELECT (1.0*avg(cntr_value)/128) /
+(SELECT 1.0*avg(cntr_value)
+FROM dbatoolbox.dbo.dm_os_performance_counters
+WHERE object_name like '%Buffer Manager%' and date_stamp >= DATEADD(day,-7, GETDATE()) 
+AND lower(counter_name) = 'page life expectancy')
+AS [Week 1 Avg Buffer Pool Rate]
+FROM dbatoolbox.dbo.dm_os_performance_counters
+WHERE object_name like '%Buffer Manager%'
+AND counter_name = 'database pages' and date_stamp >= DATEADD(day,-7, GETDATE()) 
+)q,
+(
+SELECT (1.0*avg(cntr_value)/128) /
+(SELECT 1.0*avg(cntr_value)
+FROM dbatoolbox.dbo.dm_os_performance_counters
+WHERE object_name like '%Buffer Manager%' and date_stamp between DATEADD(day,-14, GETDATE()) and DATEADD(day,-8, GETDATE()) 
+AND lower(counter_name) = 'page life expectancy')
+AS [Week 2 Avg Buffer Pool Rate]
+FROM dbatoolbox.dbo.dm_os_performance_counters
+WHERE object_name like '%Buffer Manager%'
+AND counter_name = 'database pages' and date_stamp between DATEADD(day,-14, GETDATE()) and DATEADD(day,-8, GETDATE())
+)r
+
+select a.DB,
+[day_1_avg_read_lat] [Day 1 Avg Read Latency (ms)],
+[day_1_avg_write_lat] [Day 1 Avg Write Latency (ms)],
+[week_1_avg_read_lat] [Week 1 Avg Read Latency (ms)],
+[week_1_avg_write_lat] [Week 1 Avg Write Latency (ms)],
+[week_2_avg_read_lat] [Week 2 Avg Read Latency (ms)],
+[week_2_avg_write_lat] [Week 2 Avg Write Latency (ms)]
+
+into #TableK
+from
+(
+SELECT db,avg(vReadLatency) [day_1_avg_read_lat]
+  FROM [DBAToolbox].[dbo].[IOLatency] where tstamp >= DATEADD(day,-1, GETDATE()) 
+	and num_of_bytes_read>0 	and DATEPART(hour, tstamp) NOT BETWEEN 0 AND 8   and (physical_name  like '%bet%' or physical_name like '%live%' or physical_name like '%settle%')
+
+	group by db
+)a,
+(
+SELECT db,avg(vReadLatency) [week_1_avg_read_lat]
+  FROM [DBAToolbox].[dbo].[IOLatency] where tstamp >= DATEADD(day,-7, GETDATE()) 
+	and num_of_bytes_read>0 and DATEPART(hour, tstamp) NOT BETWEEN 0 AND 8   and (physical_name  like '%bet%' or physical_name like '%live%' or physical_name like '%settle%')
+
+	group by db
+)b,
+(
+SELECT db,avg(vReadLatency) [week_2_avg_read_lat]
+  FROM [DBAToolbox].[dbo].[IOLatency] where tstamp between DATEADD(day,-14, GETDATE()) and DATEADD(day,-8, GETDATE()) 
+	and num_of_bytes_read>0 and DATEPART(hour, tstamp) NOT BETWEEN 0 AND 8   and (physical_name  like '%bet%' or physical_name like '%live%' or physical_name like '%settle%')
+
+	group by db
+)c,
+
+(
+SELECT db,avg(vWriteLatency) [day_1_avg_write_lat]
+  FROM [DBAToolbox].[dbo].[IOLatency] where tstamp >= DATEADD(day,-1, GETDATE()) 
+	and num_of_bytes_written>0 and DATEPART(hour, tstamp) NOT BETWEEN 0 AND 8   and (physical_name  like '%bet%' or physical_name like '%live%' or physical_name like '%settle%')
+
+	group by db
+)d,
+(
+SELECT db,avg(vWriteLatency) [week_1_avg_write_lat]
+  FROM [DBAToolbox].[dbo].[IOLatency] where tstamp >= DATEADD(day,-7, GETDATE()) 
+	and num_of_bytes_written>0 and DATEPART(hour, tstamp) NOT BETWEEN 0 AND 8   and (physical_name  like '%bet%' or physical_name like '%live%' or physical_name like '%settle%')
+
+	group by db
+)e,
+(
+SELECT db,avg(vWriteLatency) [week_2_avg_write_lat]
+  FROM [DBAToolbox].[dbo].[IOLatency] where tstamp between DATEADD(day,-14, GETDATE()) and DATEADD(day,-8, GETDATE()) 
+	and num_of_bytes_written>0 and DATEPART(hour, tstamp) NOT BETWEEN 0 AND 8   and (physical_name  like '%bet%' or physical_name like '%live%' or physical_name like '%settle%')
+
+	group by db
+)f
+where a.db=b.db and b.db=c.db and c.db=d.db and d.db=e.db and e.db=f.db and a.db in (@database,'tempdb')
+order by 2 desc
+
+SELECT top 10 CASE WHEN database_id = 32767 then 'Resource' ELSE DB_NAME(database_id)END AS DBName
+      ,OBJECT_SCHEMA_NAME(object_id,database_id) AS [SCHEMA_NAME]  
+      ,OBJECT_NAME(object_id,database_id)AS [OBJECT_NAME]
+      ,cached_time
+      ,last_execution_time
+      ,execution_count
+			,execution_count/dbatoolbox.dbo.iszero(DATEDIFF(day, cached_time, getdate()),1) execs_per_day
+      ,total_worker_time / execution_count AS AVG_CPU
+      ,total_elapsed_time / execution_count AS AVG_ELAPSED
+      ,total_logical_reads / execution_count AS AVG_LOGICAL_READS
+      ,total_logical_writes / execution_count AS AVG_LOGICAL_WRITES
+      ,total_physical_reads  / execution_count AS AVG_PHYSICAL_READS
+into #tablel FROM sys.dm_exec_procedure_stats  
+where DB_NAME(database_id)=@Database
+ORDER BY execution_count DESC
+
+DECLARE @ArchiveID INT
+   ,@Filter1Text NVARCHAR(4000)
+   ,@Filter2Text NVARCHAR(4000)
+   ,@FirstEntry SMALLDATETIME
+   ,@LastEntry SMALLDATETIME
+
+SELECT @ArchiveID = 0
+   ,@Filter1Text = ''
+   ,@Filter2Text = ''
+   -- this will only take the logs from the current day,
+   --you can change the date ranges to suit your needs
+   ,@FirstEntry = DATEADD(DAY, - 1, getdate())
+   ,@LastEntry = getdate()
+
+CREATE TABLE #ErrorLog (
+   [date] [datetime] NULL
+   ,[processinfo] [varchar](2000) NOT NULL
+   ,[text] [varchar](2000) NULL
+   ) ON [PRIMARY]
+
+INSERT INTO #ErrorLog
+EXEC master.dbo.xp_readerrorlog @ArchiveID
+   ,1
+   ,@Filter1Text
+   ,@Filter2Text
+   ,@FirstEntry
+   ,@LastEntry
+   ,N'asc'
+
+SELECT * into #a
+FROM (
+   SELECT [date]
+      ,[processinfo]
+      ,[text] AS [MessageText]
+      ,LAG([text], 1, '') OVER (
+         ORDER BY [date]
+         ) AS [error]
+   FROM #ErrorLog
+   ) AS ErrTable
+WHERE [error] LIKE 'Error%' 
+
+ select error+' ' +'('+substring(messagetext,1,50)+')' Err, count(*) ErrCount, max(date) LastOccurrence into #tablem from #a group by error+' ' +'('+substring(messagetext,1,50)+')'
+
+select db,login,priv, 
+CONVERT(DATETIME, STUFF(STUFF(STUFF(elevatestart,13,0,':'),11,0,':'),9,0,' ')) elevatestart,
+CONVERT(DATETIME, STUFF(STUFF(STUFF(elevateend,13,0,':'),11,0,':'),9,0,' ')) elevateend,
+jira
+into #tablen from dbatoolbox.dbo.ElevatedPrivWindowsHistory where CONVERT(DATETIME, STUFF(STUFF(STUFF(elevatestart,13,0,':'),11,0,':'),9,0,' ')) > DATEADD(day, -1, GETDATE()) order by 5 desc,3
+
+
+CREATE TABLE #tablep (job_id varchar(max), jobname varchar(max), executiondate datetime, [duration (sec)] int,[Historical Avg Duration (secs)] float,[Min Threshhold (secs)] float)
+INSERT INTO #tablep
+EXEC dbatoolbox..usp_SQLAgentJobOutliers
+
+CREATE TABLE #tableq (job_id varchar(max), jobname varchar(max), step_id int,step_name varchar(max),executiondate datetime, [duration (sec)] int,[Historical Avg Duration (secs)] float,[Min Threshhold (secs)] float)
+INSERT INTO #tableq
+EXEC dbatoolbox..usp_SQLAgentJobStepOutliers
+
+select l.DbName DB, l.tstamp BlockTime, b.WaitingSpid, l.LeadingBlocker,  b.BlockingChain, l.LoginName BlockingLogin, b.LoginName WaitingLogin, 
+l.SqlText BlockingSQL, b.SqlText WaitingSQL, b.WaitTime/1000 WaitTime
+into #tabler from dbatoolbox..LeadingBlocker l
+join dbatoolbox..blocked b on l.tStamp=b.tStamp
+where l.tstamp > DATEADD(day, -1, GETDATE()) and b.WaitTime/1000>30
+
+-- Deadlocks in last 24hrs
+drop table if exists dbatoolbox.dbo.blitzlock
+DECLARE @StartDateBlitz datetime = (SELECT DATEADD(HH,-24,GETDATE())),@EndDateBlitz DATETIME = (SELECT GETDATE())
+EXEC dbatoolbox.dbo.sp_BlitzLock @EndDate = @EndDateBlitz, @StartDate = @StartDateBlitz--,@OutputDatabaseName ='dbatoolbox' ,@OutputSchemaName  = 'dbo' ,  @OutputTableName = 'BlitzLock' 
+select database_name db,object_name obj, finding_group category, finding into #tables from dbatoolbox.dbo.deadlock_findings where check_id <>-1 order by check_id
+EXEC dbatoolbox.dbo.sp_BlitzLock @EndDate = @EndDateBlitz, @StartDate = @StartDateBlitz,@OutputDatabaseName ='dbatoolbox' ,@OutputSchemaName  = 'dbo' ,  @OutputTableName = 'BlitzLock' 
+select Database_Name db, event_date tStamp, deadlock_group, query into #tablet from dbatoolbox.dbo.blitzlock order by event_date desc
+
+SELECT TOP 10 getdate() tstamp,
+	b.tablename,
+	b.[rowcount],
+	previous_rowcount,
+	diff,
+	diff_pcnt into #tableu FROM (
+	SELECT id,
+		tablename,
+		tstamp,
+		[rowcount],
+		previous_rowcount,
+		diff,
+		cast(cast(100 AS FLOAT) * cast(diff AS FLOAT) / nullif(cast([rowcount] AS FLOAT),0) AS float) diff_pcnt FROM (
+		SELECT id,
+			tablename,
+			tstamp,
+			[rowcount],
+			LAG([rowcount]) OVER (PARTITION BY tablename ORDER BY tstamp) AS previous_rowcount,
+			[rowcount] - LAG([rowcount]) OVER (PARTITION BY tablename ORDER BY tstamp) AS diff FROM dbatoolbox.dbo.TableRowCount_Hist
+		) a
+	) b,
+	(
+		SELECT max(id) id,
+			tablename FROM dbatoolbox.dbo.TableRowCount_Hist GROUP BY tablename
+		) c WHERE b.id = c.id AND b.tablename = c.tablename 	and [rowcount]>250000 ORDER BY diff_pcnt DESC
+
+select top 10 a.[Schema],a.[name] Tbl, Partitioned, [rowcnt] [Rows],c.SizeInMB into #tablev from
+(
+Select c.name [schema],b.name, CASE WHEN COUNT(*) > 1 THEN 'Yes' ELSE 'No' END 'Partitioned'
+From sys.partitions a
+Join sys.tables b on b.object_id = a.object_id
+Join sys.schemas c on c.schema_id = b.schema_id
+Where a.index_id <= 1
+Group by c.name, b.name
+)a,
+(
+SELECT object_schema_name(object_id) sch,object_name(object_id)tbl,SUM (row_count) rowcnt FROM sys.dm_db_partition_stats 
+WHERE (index_id=0 or index_id=1) group by object_id
+)b,
+(
+select    
+      object_schema_name( sys.dm_db_partition_stats.object_id) sch,sys.objects.name, sum(reserved_page_count) * 8.0 / 1024 [SizeInMB]
+from    
+      sys.dm_db_partition_stats, sys.objects
+where    
+      sys.dm_db_partition_stats.object_id = sys.objects.object_id
+
+group by sys.dm_db_partition_stats.object_id,sys.objects.name
+)c
+where a.[schema]=b.[sch] and a.name=b.[tbl] and partitioned='no' and a.[schema]=c.sch and a.name=c.name  and rowcnt>100000000
+order by 4 desc
+
+
+
+
+select  * from #tablea
+select * from #tableb
+select * from #tablec
+select * from #tabled
+select * from #tablee
+select * from #tablef
+select * from #tableg
+select * from #tableh
+select * from #tablei
+select * from #tablej
+select * from #tablek
+select * from #tablel
+select * from #tablem
+select * from #tablen
+select * from #tablep
+select * from #tableq
+select * from #tabler
+select * from #tables
+select * from #tablet
+select * from #tableu
+select * from #tablev
+
+DECLARE @tableA_HTML  NVARCHAR(MAX) ;
+DECLARE @tableB_HTML  NVARCHAR(MAX) ;
+DECLARE @tableC_HTML  NVARCHAR(MAX) ;
+DECLARE @tableD_HTML  NVARCHAR(MAX) ;
+DECLARE @tableE_HTML  NVARCHAR(MAX) ;
+DECLARE @tableF_HTML  NVARCHAR(MAX) ;
+DECLARE @tableG_HTML  NVARCHAR(MAX) ;
+DECLARE @tableH_HTML  NVARCHAR(MAX) ;
+DECLARE @tableI_HTML  NVARCHAR(MAX) ;
+DECLARE @tableJ_HTML  NVARCHAR(MAX) ;
+DECLARE @tableK_HTML  NVARCHAR(MAX) ;
+DECLARE @tableL_HTML  NVARCHAR(MAX) ;
+DECLARE @tableM_HTML  NVARCHAR(MAX) ;
+DECLARE @tableN_HTML  NVARCHAR(MAX) ;
+DECLARE @tableP_HTML  NVARCHAR(MAX) ;
+DECLARE @tableQ_HTML  NVARCHAR(MAX) ;
+DECLARE @tableR_HTML  NVARCHAR(MAX) ;
+DECLARE @tableS_HTML  NVARCHAR(MAX) ;
+DECLARE @tableT_HTML  NVARCHAR(MAX) ;
+DECLARE @tableU_HTML  NVARCHAR(MAX) ;
+DECLARE @tableV_HTML  NVARCHAR(MAX) ;
+
+
+DECLARE @HTML  NVARCHAR(MAX) ;
+
+SET @tableA_HTML =
+    N'<h2 id="reads"><a href="#top">Logical Reads:</a></h2>' +
+		N'<h5>This report shows the most expensive queries in the last 24hrs by total logical reads. Reads expressed in 8k pages </h5>' +
+    N'<table border="1">' +
+    N'<tr><th>DatabaseName</th><th>SchemaName</th><th>ObjectName</th><th>QueryText</th><th>TotalLogicalReads</th><th>TotalLogicalreads %</th><th>AverageLogicalReads</th></tr>' +
+    CAST ( ( SELECT td =  DatabaseName , '',
+                    td =  isnull(SchemaName,'') , '',
+                    td =  isnull(ObjectName,''), '',
+					          td =   substring(SUBSTRING(QueryText, CHARINDEX('select ', QueryText), LEN(QueryText)),1,100) , '' ,
+                    td =   format(TotalLogicalReads, 'N0'), '',
+										td =   [TotalLogicalReads %] , '' ,
+                    td =   format(AverageLogicalReads, 'N0'), ''
+              FROM #TableA     
+              FOR XML PATH('tr'), TYPE 
+    ) AS NVARCHAR(MAX) ) +
+    N'</table>' ;
+	
+	
+SET @tableB_HTML =
+    N'<h2 id="writes"><a href="#top">Logical Writes:</a></h2>' +
+		N'<h5>This report shows the most expensive queries in the last 24hrs by total logical writes. Writes expressed in 8k pages</h5>' +
+    N'<table border="1">' +
+    N'<tr><th>DatabaseName</th><th>SchemaName</th><th>ObjectName</th><th>QueryText</th><th>TotalLogicalWrites</th><th>TotalLogicalWrites %</th><th>AverageLogicalWrites</th></tr>' +
+    CAST ( ( SELECT td =  DatabaseName , '',
+                    td =  isnull(SchemaName,'') , '',
+                    td =  isnull(ObjectName,''), '',
+					          td =   substring(QueryText,1,100) , '' ,
+                    td =   format(TotalLogicalWrites, 'N0'), '',
+										td =   [TotalLogicalWrites %] , '' ,
+                    td =   format(AverageLogicalWrites, 'N0'), ''
+              FROM #TableB     
+              FOR XML PATH('tr'), TYPE 
+    ) AS NVARCHAR(MAX) ) +
+    N'</table>' ;
+
+
+	
+SET @tableC_HTML =
+    N'<h2 id="duration"><a href="#top">Duration:</a></h2>' +
+		N'<h5>This report shows the most expensive queries in the last 24hrs by total duration</h5>' +
+    N'<table border="1">' +
+    N'<tr><th>DatabaseName</th><th>SchemaName</th><th>ObjectName</th><th>QueryText</th><th>TotalDuration (ms)</th><th>TotalDuration %</th><th>AverageDuration (ms)</th></tr>' +
+    CAST ( ( SELECT td =  DatabaseName , '',
+                    td =  isnull(SchemaName,'') , '',
+                    td =  isnull(ObjectName,''), '',
+					          td =   substring(QueryText,1,100) , '' ,
+                    td =   format([TotalDuration (μs)]*0.001, 'N0'), '',
+										td =  [TotalDuration %] , '' ,
+                    td =   format([AverageDuration (μs)]*0.001, 'N0'), ''
+              FROM #TableC     
+              FOR XML PATH('tr'), TYPE 
+    ) AS NVARCHAR(MAX) ) +
+    N'</table>' ;
+
+		SET @tableD_HTML =
+    N'<h2 id="regressed"><a href="#top">Queries That Recently Regressed in Performance (Comparing Recent vs. History Execution):</a></h2>' +
+		N'<h5>This report compares execution in recent period (24Hrs) vs. history period (last week) and identifies those that introduced additional_duration_workload. This metric is calculated as a difference between recent avg execution and history avg execution multiplied by the number of recent execs. It shows how much additional duration recent executions introduced compared to history</h5>' +
+    N'<table border="1">' +
+    N'<tr><th>QueryID</th><th>Query_Text</th><th>Parent_Object</th><th>Additional_Duration_Workload (ms)</th><th>Total_Duration_Recent (ms)</th><th>Avg_Duration_Recent (ms)</th><th>Total_Duration_Hist (ms)</th><th>Avg_Duration_Hist (ms)</th><th>Count_Executions_Recent</th><th>Count_Executions_Hist</th></tr>' +
+    CAST ( ( SELECT td =  Query_ID , '',
+                    td =   substring(Query_Text,1,250) , '' ,
+										td =   parent, '' ,
+                    td =   format(Additional_Duration_Workload, 'N0'), '',
+                    td =   format(total_duration_recent, 'N0'), '',
+										td =   format(avg_duration_recent, 'N0'), '',
+                    td =   format(total_duration_hist, 'N0'), '',
+										td =   format(avg_duration_hist, 'N0'), '',
+                    td =   format(count_executions_recent, 'N0'), '',
+                    td =   format(count_executions_hist, 'N0'), ''
+              FROM #TableD     
+              FOR XML PATH('tr'), TYPE 
+    ) AS NVARCHAR(MAX) ) +
+    N'</table>' ;
+
+SET @tableE_HTML =
+    N'<h2 id="stats"><a href="#top">Out of Date Statistics:</a></h2>' +
+		N'<h5>This report shows the statistics objects that should be updated on tables with over 10k rows, due to having changed by over 10%</h5>' +
+    N'<table border="1">' +
+    N'<tr><th>TableName</th><th>Statistic</th><th>StatsLastUpdated</th><th>RowsInTable</th><th>RowModifications</th><th>PercentChange</th></tr>' +
+    CAST ( ( SELECT td =  TableName , '',
+                    td =  Statistic , '',
+                    td =  StatsLastUpdated, '',
+                    td =   format(RowsInTable, 'N0'), '',
+                    td =   format(RowModifications, 'N0'), '',
+                    td =   format(PercentChange, 'N0'), ''
+              FROM #TableE
+              FOR XML PATH('tr'), TYPE 
+    ) AS NVARCHAR(MAX) ) +
+    N'</table>' ;
+
+		SET @tableF_HTML =
+    N'<h2 id="iops"><a href="#top">IOPS & MBPS - Day 1 vs Week 1 vs Week 2:</a></h2>' +
+		N'<h5>This report shows average and max IOPS and MBPS (throughput in megabytes per sec) over last 1 day, last 1 week and the week before last i.e. Day 1, Week 1 and Week 2. Polling is done once every 5 mins.</h5>' +
+    N'<table border="1">' +
+    N'<tr><th>DB</th>
+		<th>Day 1 Avg IOPS</th><th>Day 1 Max IOPS</th>
+		<th>Day 1 Avg MBPS</th><th>Day 1 Max MBPS</th>
+		<th>Week 1 Avg IOPS</th><th>Week 1 Max IOPS</th>
+		<th>Week 1 Avg MBPS</th><th>Week 1 Max MBPS</th>
+		<th>Week 2 Avg IOPS</th><th>Week 2 Max IOPS</th>
+		<th>Week 2 Avg MBPS</th><th>Week 2 Max MBPS</th>
+    </tr>' +
+    CAST ( ( SELECT td =  DB , '',
+                    td =   format([Day 1 Avg IOPS], 'N0'), '',
+                    td =   [Day 1 Max IOPS], '',
+                    td =   format([Day 1 Avg MBPS], 'N0'), '',
+                    td =   [Day 1 Max MBPS], '',
+										td =   format([Week 1 Avg IOPS], 'N0'), '',
+                    td =   [Week 1 Max IOPS], '',
+                    td =   format([Week 1 Avg MBPS], 'N0'), '',
+                    td =   [Week 1 Max MBPS], '',
+										td =   format([Week 2 Avg IOPS], 'N0'), '',
+                    td =   [Week 2 Max IOPS], '',
+                    td =   format([Week 2 Avg MBPS], 'N0'), '',
+                    td =   [Week 2 Max MBPS], ''
+
+              FROM #TableF
+              FOR XML PATH('tr'), TYPE 
+    ) AS NVARCHAR(MAX) ) +
+    N'</table>' ;
+
+		SET @tableG_HTML =				
+    N'<h2 id="lag"><a href="#top">Secondary Replica Lag - Day 1 vs Week 1 vs Week 2:</a></h2>' +
+		N'<h5>This report shows average secondary replica lag in seconds over last 1 day, the last 1 week and the week before that i.e. Day 1, Week 1 and Week 2. The lag is polled every 5mins. 
+		Please note that the lags captured below exclude the midnight->8am period when we skew the numbers due to overnight DB maintenance work</h5>' +
+    N'<table border="1">' +
+    N'<tr><th>DB</th><th>AG</th><th>Replica</th><th>Day 1 Avg (Secs)</th><th>Day 1 Max (Secs)</th><th>Week 1 Avg (Secs)</th><th>Week 1 Max (Secs)</th>
+																			<th>Week 2 Avg (Seconds)</th><th>Week 2 Max (Seconds)</th></tr>' +
+    CAST ( ( SELECT td =  DB , '',
+                    td =  AG, '',
+                    td =  Replica, '',
+									  td =  [Day_1_Avg_Secondary_Lag], '',
+									  td =  [Day_1_Max_Secondary_Lag], '',
+										td =  [Week_1_Avg_Secondary_Lag], '',
+									  td =  [Week_1_Max_Secondary_Lag], '',
+										td =  [Week_2_Avg_Secondary_Lag], '',
+									  td =  [Week_2_Max_Secondary_Lag], ''
+
+              FROM #TableG
+              FOR XML PATH('tr'), TYPE 
+    ) AS NVARCHAR(MAX) ) +
+    N'</table>' ;
+
+		SET @tableH_HTML =
+		N'
+
+		<html>
+<head>
+
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+body {
+	 <!--font-family:Calibri;-->
+	 	 <!--font-size: 12px;-->
+
+}
+
+</style>
+</head>
+<body>
+<a name="top"></a>
+<font size="2" face="calibri" >
+<div id="toc_container">
+<p class="toc_title">Contents</p>
+<ul class="toc_list">
+  <li><a href="#instance">#1 Instance Level Metrics</a>
+  <ul>
+    <li><a href="#cpu">(a) CPU Utilization</a></li>
+    <li><a href="#mem">(b) Memory Pressure</a></li>
+		<li><a href="#errs">(c) Error Log</a></li>
+		<li><a href="#blockhead">(d) Excessive Blocking</a></li>
+		
+  </ul>
+</li>
+  <li><a href="#db">#2 Database Level Metrics</a>
+  <ul>
+    <li><a href="#io">(a) IO Latency</a></li>
+    <li><a href="#sp">(b) Stored Procedure Counts and Stats</a></li>
+		<li><a href="#counts">(c) Hot and Warm Row Counts</a></li>
+		<li><a href="#lag">(d) Secondary Replica Lag</a></li>
+		<li><a href="#iops">(e) IOPS and Throughput</a></li>
+		<li><a href="#regressed">(f) Regressed Queries</a></li>
+		<li><a href="#stats">(g) Out of Date Stats</a></li>
+		<li><a href="#reads">(h) Logical Reads</a></li>
+		<li><a href="#writes">(i) Logical Writes</a></li>
+		<li><a href="#duration">(j) Query Duration</a></li>
+		<li><a href="#tablegrowth">(k) Table Growth</a></li>
+		<li><a href="#nonpart">(l) Non-Partitioned Tables</a></li>
+
+  </ul>
+	  <li><a href="#sec">#3 Security</a>
+  <ul>
+    <li><a href="#privs">(a) Write Access Grants</a></li>
+  </ul>
+	  <li><a href="#jobs">#4 Jobs</a>
+  <ul>
+    <li><a href="#jobfail">(a) Jobs That Failed In Last 24Hrs</a></li>
+		<li><a href="#jobstd">(b) Jobs With Unusual Duration In Last 24Hrs</a></li>
+		<li><a href="#jobstepstd">(c) Job Steps With Unusual Duration In Last 24Hrs</a></li>
+  </ul>
+	<li><a href="#deadlocks">#5 Deadlock Analysis</a>
+  <ul>
+    <li><a href="#deadlock_overview">(a) Deadlock Object Analysis for Last 24Hrs </a></li>
+		<li><a href="#deadlock_details">(b) Deadlock Process Analysis for Last 24Hrs</a></li>
+
+
+  </ul>
+
+</li>
+
+
+</ul>
+</div>
+</font>
+
+<TABLE CELLPADDING="2" CELLSPACING="2" WIDTH="100%"><TR><TD BGCOLOR="#CCCCCC"><H2 align="center" id="instance">Instance Level Metrics</H2></TD></TABLE></TR>' +
+    N'<h2 id="cpu"><a href="#top">SQL Server CPU Utilization - Day 1 vs Week 1 vs Week 2:</a></h2>' +
+		N'<h5>This report shows avg and max SQL Server CPU Utilization over the last 1 day, last 1 week and the week before last i.e. Day 1, Week 1 and Week 2. CPU utilization is polled every 5mins.</h5>' +
+    N'<table border="1">' +
+    N'<tr><th>Day 1 Avg</th><th>Day 1 Max</th><th>Week 1 Avg</th><th>Week 1 Max</th><th>Week 2 Avg</th><th>Week 2 Max</th></tr>' +
+    CAST ( ( SELECT 
+										td =  [Day 1 Avg], '',
+                    td =   [Day 1 Max],  '',
+                    td =  [Week 1 Avg], '' ,                  
+                    td =   [Week 1 Max],  '',
+										td =  [Week 2 Avg], '' ,                  
+                    td =   [Week 2 Max],  ''
+
+
+              FROM #TableH
+              FOR XML PATH('tr'), TYPE 
+    ) AS NVARCHAR(MAX) ) +
+    N'</table>' ;
+
+		SET @tableI_HTML =
+    N'<h2 id="counts"><a href="#top">'+@Database +' Hot and Warm Row Counts:</a></h2>' +
+		N'<h5>This report shows hot and warm row counts for ' + @Database + ' and the % increase since the previous poll. Polling is done once a day</h5>' +
+    N'<table border="1">' +
+    N'<tr><th>tStamp</th><th>Hot Row Count</th><th>% Delta</th><th>Warm Row Count</th><th>% Delta</th></tr>' +
+    CAST ( ( SELECT td =  convert(varchar, tStamp, 0) , '',
+                    td =   format(TotalHotRows, 'N0'), '',                   
+										td =   HotDelta, '', 
+										td =   format(TotalWarmRows, 'N0'), '',                   
+										td =   WarmDelta
+								FROM #TableI order by tStamp desc
+              FOR XML PATH('tr'), TYPE 
+    ) AS NVARCHAR(MAX) ) +
+    N'</table>' ;
+
+		SET @tableJ_HTML =
+    N'<h2 id="mem"><a href="#top">Page Life Expectancy (PLE) and Buffer Pool Churn Rate (BPCR)</a></h2>' +
+		N'<h5>This report shows averages for PLE and BPCR across 1 day, the past week and the week before that i.e. Day 1, Week 1 and Week 2. The PLE counter value is an essential measurement of pressure on the buffer memory in units of seconds. 
+		It should be at a minimum threshold of (Max Server Mem (GB) / 4) *300. The churn rate for the Buffer Pool should ideally not exceed 20MB/s. 
+		Failing to meet these minimums puts excess pressure on disk IO. PLE and Buffer Pool churn rate are polled every 5 mins.</h5>' +
+    N'<table border="1">' +
+    N'<tr><th>Day 1 Avg PLE (s)</th><th>Week 1 Avg PLE (s)</th><th>Week 2 Avg PLE (s)</th><th>PLE Threshold (s)</th><th>Day 1 Avg BPCR (MB/s)</th><th>Week 1 Avg BPCR (MB/s)</th><th>Week 2 Avg BPCR (MB/s)</th></tr>' +
+    CAST ( ( SELECT td =  cast([Day 1 Avg Page Life Expectancy] as int), '',
+                    td =  cast([Week 1 Avg Page Life Expectancy] as int), '',       
+										td =  cast([Week 2 Avg Page Life Expectancy] as int), '',
+                    td =  cast([Page Life Expectancy Threshold] as int), '',    
+										td =  cast([Day 1 Avg Buffer Pool Rate] as int), '',                 
+										td =  cast([Week 1 Avg Buffer Pool Rate] as int) , ''          ,
+										td =  cast([Week 2 Avg Buffer Pool Rate] as int) , ''               
+
+										              FROM #TableJ 
+              FOR XML PATH('tr'), TYPE 
+    ) AS NVARCHAR(MAX) ) +
+    N'</table>' ;
+
+		SET @tableK_HTML =
+		N'<TABLE CELLPADDING="2" CELLSPACING="2" WIDTH="100%"><TR><TD BGCOLOR="#CCCCCC"><H2 align="center" id="db">Database Level Metrics</H2></TD></TABLE></TR>' +
+    N'<h2  id="io"><a href="#top">Read/Write IO Latency</a></h2>' +
+		N'<h5>This report shows total average read and write latencies across all DB physical files. 
+		SQL Server is usually a high I/O activity process and in most cases the database is larger than the amount of memory installed on a computer and therefore SQL Server has to pull data from disk to satisfy queries.  
+		In addition, since the data in databases is constantly changing these changes need to be written to disk.  Another process that can consume a lot of I/O is the TempDB database.  
+		The TempDB database is a temporary working area for SQL Server to do such things as sorting and grouping.  
+		The TempDB database also resides on disk and therefore depending on how many temporary objects are created this database could be busier than your user databases.
+
+Since I/O is such an important part of SQL Server performance you need to make sure your disk subsystem is not the bottleneck. 
+Please note that the latencies captured below exclude the midnight->8am period and covers business critical Bet, Live and Settlement tables only. 
+This is so we do not skew the numbers due to overnight DB index maintenance, data archiving, data change capture or other similar backend processes.
+Excellent: < 1ms
+Very good: < 5ms
+Good: 5 – 10ms
+Poor: 10 – 20ms
+Bad: 20 – 100ms
+</h5>' +
+    N'<table border="1">' +
+    N'<tr>
+								<th>DB</th>
+								<th>Day 1 Avg Read Latency (ms)</th><th>Day 1 Avg Write Latency (ms)</th><th>Week 1 Avg Read Latency (ms)</th>
+								<th>Week 1 Avg Write Latency (ms)</th><th>Week 2 Avg Read Latency (ms</th><th>Week 2 Avg Write Latency (ms)</th></tr>' +
+    CAST ( ( SELECT 
+										td =  db, '',
+										td =  cast([Day 1 Avg Read Latency (ms)] as int), '',
+                    td =  cast([Day 1 Avg Write Latency (ms)] as int), '',       
+										td =  cast([Week 1 Avg Read Latency (ms)] as int), '',
+										td =  cast([Week 1 Avg Write Latency (ms)] as int), '',
+										td =  cast([Week 2 Avg Read Latency (ms)] as int), '',
+										td =  cast([Week 2 Avg Write Latency (ms)] as int), ''
+
+							FROM #TableK
+              FOR XML PATH('tr'), TYPE 
+    ) AS NVARCHAR(MAX) ) +
+    N'</table>' ;
+
+SET @tableL_HTML =
+    N'<h2 id="sp"><a href="#top">Stored Procedure (SP) Execution Counts:</a></h2>' +
+		N'<h5>This report identifies the top 10 stored procedures in the procedure cache by execution count. 
+								When we are looking for tuning opportunities, we need to consider tuning those store procedures that have been executed many times.  
+								Making small performance gains in a stored procedure that has been executed 100,000 times might be much more beneficial than speeding 
+								up a stored procedure two fold if it has only been executed a few times. Also included in this report are average elapsed time and average logical reads 
+								(an indicator of how much work is being done) for each execution.
+		</h5>' +
+    N'<table border="1">' +
+    N'<tr><th>Schema</th><th>SP</th><th>Cached Time</th><th>Execution Count</th><th>Avg Executions Per Day</th><th>Avg Elapsed Time (microseconds)</th><th>Avg Logical Reads</th></tr>' +
+    CAST ( ( SELECT td =  Schema_Name , '',
+                    td =  OBJECT_NAME , '',
+                    td =  convert(varchar, cached_time, 0) , '',
+                    td =   format(execution_count, 'N0'), '',
+										td =   format(execs_per_day, 'N0'), '',
+                    td =   format(AVG_ELAPSED, 'N0'), '',
+                    td =   format(AVG_LOGICAL_READS, 'N0'), ''
+              FROM #Tablel
+              FOR XML PATH('tr'), TYPE 
+    ) AS NVARCHAR(MAX) ) +
+    N'</table>' ;
+
+		SET @tableM_HTML =
+    N'<h2 id="errs"><a href="#top">SQL Server Errors in Last 24 Hours:</a></h2>' +
+		N'<h5>This report identifies the errors in the SQL Server Error Log over the past day along with how often they have occurred and when it occurred last. 
+		</h5>' +
+    N'<table border="1">' +
+    N'<tr><th>Error</th><th>Error Count</th><th>Last Occurrence</th></tr>' +
+    CAST ( ( SELECT td =  Err , '',
+                    td =   errcount, '',
+                    td =   convert(varchar, lastoccurrence, 0) , ''
+              FROM #Tablem
+              FOR XML PATH('tr'), TYPE 
+    ) AS NVARCHAR(MAX) ) +
+    N'</table>' ;
+
+		SET @tableN_HTML =
+		N'<TABLE CELLPADDING="2" CELLSPACING="2" WIDTH="100%"><TR><TD BGCOLOR="#CCCCCC"><H2 align="center" id="sec">Security</H2></TD></TABLE></TR>' +
+    N'<h2 id="privs"><a href="#top">SQL Server Self-Service Write Access in Last 24 Hours:</a></h2>' +
+		N'<h5>This report identifies the permissions to perform DB data changes granted by team/product leads in the past day, as well as the authorizing Jira .
+		</h5>' +
+    N'<table border="1">' +
+    N'<tr><th>DB</th><th>Login</th><th>Privilege Granted</th><th>Access Start</th><th>Access End</th><th>Authorizing Jira</th></tr>' +
+    CAST ( ( SELECT td =  DB , '',
+                    td =   Login, '',                    
+										td =   priv, '',
+                    td =   convert(varchar, elevatestart, 0) , '',
+										td =   convert(varchar, elevateend, 0) , '',
+                    td =   jira, ''  
+
+              FROM #TableN
+              FOR XML PATH('tr'), TYPE 
+    ) AS NVARCHAR(MAX) ) +
+    N'</table>' ;
+
+
+DECLARE @kpi nvarchar(max);
+
+SET @kpi = 
+N'<style type="text/css">h2, body {font-family: ''''calibri'''';}
+table{font-size:10px; border-collapse:collapse;}
+td{background-color:#F1F1F1; border:1px solid black; padding:3px;}
+th{background-color:#99CCFF;}
+
+td {
+    border-width: 1px;
+    padding: 2px;
+    border-style: solid;
+    border-color: #666666;
+    background-color: #ffffff;
+}
+td.amber {
+    border-width: 1px;
+    padding: 5px;
+    border-style: solid;
+    border-color: #66666;
+    background-color: #fada5e;
+}
+
+td.red {
+    border-width: 1px;
+    padding: 5px;
+    border-style: solid;
+    border-color: #666666;
+    background-color: #FF0000;
+}
+
+td.green {
+    border-width: 1px;
+    padding: 5px;
+    border-style: solid;
+    border-color: #666666;
+    background-color: #008000;
+}
+
+</style>' 
++ N'<h2>KPI Daily Management Summary</h2>'
++ N'<table border="1">' + N'<tr>
+<th>KPI</th>
+<th>Category</th>
+<th>Target</th>
+<th>Value</th>
+<th>Status</th>'
+
++ CAST(( SELECT td =kpi, 
+                '', 
+                td = category, 
+                '', 
+							 td = target, 
+                '', 
+							td = value, 
+                '', 
+               td = CASE status 
+                         WHEN 0
+                         THEN '[class_red]'
+                         WHEN 1
+                         THEN '[class_green]'
+												 WHEN 2
+                         THEN '[class_amber]'
+
+                       
+                    END
+            FROM dbatoolbox..kpi where category <>'archiving' order by category
+
+            FOR XML PATH('tr'), TYPE) AS NVARCHAR(MAX)) + N'</table>';
+SET @kpi = REPLACE(REPLACE(@kpi, N'&lt;', N'<'), N'&gt;', N'>');
+
+set @kpi = replace(@kpi, '<td>[class_red]', '<td class = "red">')
+set @kpi = replace(@kpi, '<td>[class_green]', '<td class = "green">')
+set @kpi = replace(@kpi, '<td>[class_amber]', '<td class = "amber">')
+
+DECLARE @TableO_HTML nvarchar(max);
+
+
+SET @TableO_HTML = 
+		N'<TABLE CELLPADDING="2" CELLSPACING="2" WIDTH="100%"><TR><TD BGCOLOR="#CCCCCC"><H2 align="center" id="jobs">Jobs</H2></TD></TABLE></TR>' +
+    N'<h2 id="jobfail"><a href="#top">Job Runs in the Past 24Hrs</a></h2>' +
+		N'<h5>For each SQL Agent job defined on the instance, this report lists the most recent success, fail, retry or cancellation in the last 24hrs
+		</h5>' +
+    N'<table border="1">' +
+    N'<tr><th>Job</th><th>Run Time</th><th>Run Status</th></tr>' +
+ CAST(( SELECT td = j.[name], 
+                '', 
+                td = max(msdb.dbo.agent_datetime(jh.run_date,jh.run_time)), '',
+                '', 
+                td = CASE run_status 
+                         WHEN 0
+                         THEN N'<font color="red">Failure</font>'
+                         WHEN 1
+                         THEN N'<font color="green">Success</font>'
+                         WHEN 2
+                         THEN N'<font color="orange">Retry</font>'
+                         WHEN 3
+                         THEN N'<font color="blue">Cancellation</font>'
+                         WHEN 4
+                         THEN N'<font color="black">In Progress</font>'
+                         ELSE N'<font color="black">Unknown</font'
+                    END
+            FROM msdb.dbo.sysjobhistory AS jh  
+            INNER JOIN msdb.dbo.sysjobs AS j
+            ON j.job_id = jh.job_id
+            WHERE CONVERT(datetime, 
+                          SUBSTRING(CONVERT(varchar(12), jh.run_date),
+                                    0, 5) + N'-'
+                  + SUBSTRING(CONVERT(varchar(12), jh.run_date), 5, 2) + '-'
+                  + SUBSTRING(CONVERT(varchar(12), jh.run_date), 7, 2)) > DATEADD(day, -1, GETDATE())
+            AND j.category_id <> 14 and  j.[name] like @database +' - %'
+            GROUP BY j.[name], jh.run_status    order by jh.run_status
+            FOR XML PATH('tr'), TYPE) AS NVARCHAR(MAX)) + N'</table>';
+SET @TableO_HTML = REPLACE(REPLACE(@TableO_HTML, N'&lt;', N'<'), N'&gt;', N'>');
+
+SET @tableP_HTML =
+    N'<h2 id="jobstd"><a href="#top">Jobs With Unusual Duration In Last 24 Hours:</a></h2>' +
+		N'<h5>This report shows jobs that within the last 24hrs have taken 2 Standard Deviations or more longer than the average duration for the past 7 days
+		</h5>' +
+    N'<table border="1">' +
+    N'<tr><th>Job</th><th>Execution</th><th>Duration (secs)</th><th>Historical Avg Duration (secs)</th><th>Min Threshhold (secs)</th></tr>' +
+    CAST ( ( SELECT td =  JobName , '',
+                    td =   convert(varchar, ExecutionDate, 0) , '',
+                    td =   convert(varchar, [duration (sec)], 0) , '',
+                    td =   convert(varchar, [Historical Avg Duration (secs)], 0) , '',
+                    td =   convert(varchar, [Min Threshhold (secs)], 0) , ''
+              FROM #TableP where jobname like @database +' - %' 
+              FOR XML PATH('tr'), TYPE 
+    ) AS NVARCHAR(MAX) ) +
+    N'</table>' ;
+
+SET @tableQ_HTML =
+    N'<h2 id="jobstepstd"><a href="#top">Job Steps With Unusual Duration In Last 24 Hours:</a></h2>' +
+		N'<h5>This report shows job steps that within the last 24hrs have taken 2 Standard Deviations or more longer than the average duration for the past 7 days
+		</h5>' +
+    N'<table border="1">' +
+    N'<tr><th>Job</th><th>Execution</th><th>Step ID</th><th>Step Name</th><th>Duration (secs)</th><th>Historical Avg Duration (secs)</th><th>Min Threshhold (secs)</th></tr>' +
+    CAST ( ( SELECT td =  JobName , '',
+                    td =   convert(varchar, ExecutionDate, 0) , '',
+										td =   step_id , '',
+										td =   step_name , '',
+                    td =   convert(varchar, [duration (sec)], 0) , '',
+                    td =   convert(varchar, [Historical Avg Duration (secs)], 0) , '',
+                    td =   convert(varchar, [Min Threshhold (secs)], 0) , ''
+              FROM #TableQ where jobname like @database +' - %'  order by 3 desc
+              FOR XML PATH('tr'), TYPE 
+    ) AS NVARCHAR(MAX) ) +
+    N'</table>' ;
+
+SET @tableR_HTML =
+    N'<h2 id="blockhead"><a href="#top">Excessive Blocking</a></h2>' +
+		N'<h5>This report shows processes (SPIDs) that have appeared at the head of a blockchain for over 30 seconds over the past 24 hours. Included are both blocking SPIDs 
+								and waiting SPIDs as well as what commands each were attepmpting to run and blocking duration.
+		</h5>' +
+    N'<table border="1">' +
+    N'<tr><th>DB</th><th>BlockTime</th><th>WaitingSpid</th><th>LeadingBlocker</th><th>BlockingChain</th><th>BlockingLogin</th>
+		<th>WaitingLogin</th><th>BlockingSQL</th><th>WaitingSQL</th><th>WaitTime (secs)</th></tr>' +
+    CAST ( ( SELECT td =  DB , '',
+                    td =   convert(varchar, BlockTime, 0) , '',
+										td =   WaitingSpid , '',
+										td =   LeadingBlocker , '',
+                    td =   BlockingChain , '',
+                    td =   BlockingLogin , '',
+										td =   WaitingLogin , '',                   
+										td =   substring(BlockingSQL,1,400) , '',                   
+										td =   substring(WaitingSQL,1,400) , '',
+										td =   WaitTime , ''
+              FROM #TableR order by BlockTime desc
+              FOR XML PATH('tr'), TYPE 
+    ) AS NVARCHAR(MAX) ) +
+    N'</table>' ;
+
+				SET @tableS_HTML =
+		N'<TABLE CELLPADDING="2" CELLSPACING="2" WIDTH="100%"><TR><TD BGCOLOR="#CCCCCC"><H2 align="center" id="deadlocks">Deadlock Analysis</H2></TD></TABLE></TR>' +
+    N'<h2 id="deadlock_overview"><a href="#top">Deadlock Object Analysis for the Last 24 Hours:</a></h2>' +
+		N'<h5>This report identifies the deadlocks that have taken place in the past 24 hours and the objects involved
+		</h5>' +
+    N'<table border="1">' +
+    N'<tr><th>DB</th><th>Object</th><th>Category</th><th>Finding</th></tr>' +
+    CAST ( ( SELECT td =  DB , '',
+                    td =   obj, '',                    
+                    td =   category , '',
+										td =   finding , ''
+
+              FROM #TableS
+              FOR XML PATH('tr'), TYPE 
+    ) AS NVARCHAR(MAX) ) +
+    N'</table>' ;
+
+						SET @tableT_HTML =
+    N'<h2 id="deadlock_details"><a href="#top">Deadlock Process Analysis for the Last 24 Hours:</a></h2>' +
+		N'<h5>This report identifies the deadlocks that have taken place in the past 24 hours and the processes involved
+		</h5>' +
+    N'<table border="1">' +
+    N'<tr><th>DB</th><th>tStamp</th><th>Deadlock Group</th><th>Query</th></tr>' +
+    CAST ( ( SELECT td =  DB , '',
+                    td =   convert(varchar, tStamp, 0) , '',
+                    td =   deadlock_group , '',
+										td =   query , ''
+
+              FROM #TableT
+              FOR XML PATH('tr'), TYPE 
+    ) AS NVARCHAR(MAX) ) +
+    N'</table>' ;
+
+								SET @tableU_HTML =
+    N'<h2 id="tablegrowth"><a href="#top">Table Growth for the Last 24 Hours:</a></h2>' +
+		N'<h5>This report identifies the tables that have seen the most growth in the past 24 hours. Covers tables with > 250K rows so the deltas are not being skewed by small tables
+		</h5>' +
+    N'<table border="1">' +
+    N'<tr><th>DB</th><th>tStamp</th><th>Table</th><th>Rowcount</th><th>% Delta</th></tr>' +
+    CAST ( ( SELECT td =  @Database , '',
+                    td =   convert(varchar, tStamp, 0) , '',
+										td =   tablename , '',
+                    td =   format([rowcount], 'N0'), '',
+                    td =   convert(varchar, diff_pcnt, 0) , ''
+
+              FROM #tableu
+              FOR XML PATH('tr'), TYPE 
+    ) AS NVARCHAR(MAX) ) +
+    N'</table>' ;
+
+										SET @tableV_HTML =
+    N'<h2 id="nonpart"><a href="#top">Top 10 Non-Partitioned Tables By Row Count:</a></h2>' +
+		N'<h5>This report identifies the largest tables in the DB that have not been partitioned. 
+		Partitioning is the DB process where very large tables are divided into multiple smaller parts. 
+		By splitting a large table into partitions, queries that access only a fraction of the data can run faster because there is less data to scan. 
+		The main of goal of partitioning is to aid in maintenance of large tables and to reduce the overall response time to read and load data for particular SQL operations. 
+		Non-partitioned tables with over 100m records should be flagged as a KPI.
+		</h5>' +
+    N'<table border="1">' +
+    N'<tr><th>Schema</th><th>Table</th><th>Partitioned</th><th>Row Count</th><th>Size in MB</th></tr>' +
+    CAST ( ( SELECT td =  [schema] , '',
+                    td =   Tbl , '',
+										td =   partitioned , '',
+                    td =   format([rows], 'N0'), '',
+                    td =   format([sizeinmb], 'N0'), ''
+
+              FROM #tablev
+              FOR XML PATH('tr'), TYPE 
+    ) AS NVARCHAR(MAX) ) +
+    N'</table>' ;
+
+
+
+
+
+SET @HTML =@kpi + ' <br/> ' + ISNULL(@tableH_HTML,'') + ' <br/> ' + ISNULL(@tableJ_HTML,'') + ' <br/> ' + ISNULL(@tableR_HTML,'') + ' <br/> '+ ISNULL(@tableM_HTML,'') + ' <br/> '+ISNULL(@tableK_HTML,'') +' <br/> '+ 
+isnull(@tablel_HTML,'') + ' <br/> '+isnull(@tableI_HTML,'') + ' <br/> '+ ISNULL(@tableU_HTML,'')+ ' <br/> '+ ISNULL(@tableV_HTML,'')+ ' <br/> ' +ISNULL(@tableG_HTML,'') + ' <br/> ' + ISNULL(@tableF_HTML,'') + ' <br/> '+
+ISNULL(@tableD_HTML,'') + ' <br/> ' +  ISNULL(@tableE_HTML,'') + ' <br/> ' +  ISNULL(@tableA_HTML,'') + ' <br/> ' + ISNULL(@tableB_HTML,'') + ' <br/> ' +
+ISNULL(@tableC_HTML,'') +  ' <br/> '+ ISNULL(@tableN_HTML,'')+ ' <br/> '+ ISNULL(@tableO_HTML,'')+  ' <br/> '+ ISNULL(@tableP_HTML,'') +  ' <br/> '+ ISNULL(@tableQ_HTML,'') 
++  ' <br/> '+ ISNULL(@tableS_HTML,'') +  ' <br/> '+ ISNULL(@tableT_HTML,'') +
+'</body></html>' + '' ; -- Line Break
+
+SET @HTML = REPLACE(@HTML,'<th>','<th  bgcolor="Orange"/>' ); -- For BackGround Color 
+
+SELECT @HTML
+declare @subj varchar(max)
+set @subj='Daily Metrics Report for '+@@servername
+
+  EXEC msdb.dbo.sp_send_dbmail
+    @profile_name = 'DBASupport',
+--@recipients = 'sports@betagy.com;dba@betagy.com;mick@kingmakersgroup.com;devops@betagy.com',
+@recipients = 'a.campbell@betagy.com',
+      @subject = @subj,
+    @body = @HTML,
+    @body_format = 'HTML',
+    @query_no_truncate = 1,
+    @attach_query_result_as_file = 0;
+
+ DROP TABLE #Stats;
+drop table #tablea
+drop table #tableb
+drop table #tablec 
+drop table #tabled
+drop table #tablee
+drop table #tablef
+drop table #tableg
+drop table #tableh
+drop table #tablei
+drop table #tablej
+drop table #tablek
+drop table #tablel
+drop table #tablem
+drop table #tablen
+drop table #tablep
+drop table #tableq
+drop table #tabler
+drop table #tables
+drop table #tablet
+drop table #tableu
+drop table #tablev
+
+
+
+
+DROP TABLE #ErrorLog
+drop table #a
+
+

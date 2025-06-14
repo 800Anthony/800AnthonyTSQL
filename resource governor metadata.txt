@@ -1,0 +1,32 @@
+--- Show metadata
+ USE MASTER
+ go
+
+select * from sys.dm_resource_governor_workload_groups;
+select * from sys.dm_resource_governor_configuration  ;
+select * from sys.dm_resource_governor_resource_pools;
+select * from sys.dm_resource_governor_resource_pool_volumes;
+select * from sys.dm_resource_governor_resource_pool_affinity;
+ 
+select g.name from sys.dm_exec_sessions s INNER JOIN sys.dm_resource_governor_workload_groups g
+     ON s.group_id=g.group_id where s.session_id = @@SPID;
+ 
+SELECT 
+    Sess.session_id,
+    Sess.program_name,
+    Sess.host_name,
+    Sess.login_name,
+    RG_P.name as Pool_Name,
+    RG_WG.name as WorkGroup_Name,
+	last_request_end_time,
+	reads,
+	writes,
+	logical_reads
+FROM sys.dm_exec_sessions Sess
+    INNER JOIN sys.dm_resource_governor_workload_groups RG_WG
+        ON Sess.group_id = RG_WG.group_id
+    INNER JOIN sys.dm_resource_governor_resource_pools RG_P
+        ON RG_WG.pool_id = RG_P.pool_id
+WHERE
+    Sess.is_user_process = 1
+	and Sess.group_id>2

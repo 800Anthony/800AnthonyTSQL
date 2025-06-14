@@ -1,0 +1,30 @@
+I have run the following on the DBs below and the results are provided
+
+Delete from pkgservers where NALpath like '%\\IMSWNEWBCS001%'
+Delete from DPinfo where servername like '%IMSWNEWBCS001%'
+Delete from pkgstatus where pkgserver like '%\\IMSWNEWBCS001%'
+Delete from contentdpmap where serverpath like '%\\IMSWNEWBCS001%'
+
+SMS_C01 on IMSWBULSQLC001:
+
+(345 row(s) affected)
+
+(1 row(s) affected)
+
+(0 row(s) affected)
+
+(344 row(s) affected)
+
+(344 row(s) affected)
+
+SMS_ATH on IMSWEXPSQLC001:
+
+(345 row(s) affected)
+
+(1 row(s) affected)
+
+(0 row(s) affected)
+
+(345 row(s) affected)
+
+(342 row(s) affected)

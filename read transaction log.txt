@@ -1,0 +1,38 @@
+-- Run this query to get the transaction ID
+USE YourDatabase
+GO
+SELECT 
+    [Transaction ID],
+    Operation,
+    Context,
+    AllocUnitName    
+FROM 
+    fn_dblog(NULL, NULL) 
+WHERE 
+    Operation = 'LOP_DELETE_ROWS'
+    and AllocUnitName like '%YourTableName%'
+ORDER by [transaction ID] desc
+
+-- Run this query to find the transaction SID
+SELECT
+    Operation,
+    [Transaction ID],
+    [Begin Time],
+    [End Time],
+    [Transaction Name],
+    [Transaction SID]
+FROM
+    fn_dblog(NULL, NULL)
+WHERE
+    [Transaction ID] = 'TransactionID from above'
+
+-- or use below to search using time instead of transaction ID
+
+    [Begin Time] between 'starttime' and 'endtime'
+AND
+    [Operation] = 'LOP_BEGIN_XACT'
+
+-- Run this to determine who ran the delete
+USE MASTER
+GO   
+SELECT SUSER_SNAME([Transaction SID from above])

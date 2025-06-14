@@ -1,0 +1,27 @@
+﻿
+
+
+
+
+WITH    numbered
+
+          AS ( SELECT   server_name
+
+                      , row_number() OVER (
+PARTITION BY server_name ORDER BY server_name ) AS nr
+
+               FROM    
+[_Utilities].[dbo].[ServerEnvironment]
+
+             )
+
+    DELETE  FROM numbered
+
+    WHERE   nr > 1
+
+ 
+
+
+
+false,false,1
+

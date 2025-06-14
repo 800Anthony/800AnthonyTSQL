@@ -1,0 +1,11 @@
+SELECT value 
+FROM ::fn_trace_getinfo(default) 
+
+SELECT TextData,TargetLoginName,SessionLoginName,NTUserName,NTDomainName,HostName,ApplicationName,StartTime
+
+FROM fn_trace_gettable
+
+('D:\SQL_Root\MSSQL10_50.SQL_80\MSSQL\Log\log_13.trc', default)
+
+GO
+

@@ -1,0 +1,9 @@
+﻿
+
+
+select Replace(Replace(Replace('        Please    
+ reduce        the       big       
+spaces       ',' ','#$#'),'##$',''),'#$#',' ')
+
+
+

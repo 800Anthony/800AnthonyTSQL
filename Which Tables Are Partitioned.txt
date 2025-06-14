@@ -1,0 +1,7 @@
+Select '['+c.name+']'+'.'+'[' +b.name+']' sch, CASE WHEN COUNT(*) > 1 THEN 'Yes' ELSE 'No' END 'Partitioned'
+From sys.partitions a
+Join sys.tables b on b.object_id = a.object_id
+Join sys.schemas c on c.schema_id = b.schema_id
+Where a.index_id <= 1
+Group by c.name, b.name
+Order by c.name, b.name

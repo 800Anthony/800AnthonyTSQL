@@ -1,0 +1,8 @@
+DECLARE @command varchar(1000) 
+SELECT @command = 'select ''use ?;exec sp_droprolemember db_denydatawriter''+'',''+ QUOTENAME(mp.name)
+from sys.database_role_members drm
+  join sys.database_principals rp on (drm.role_principal_id = rp.principal_id)
+  join sys.database_principals mp on (drm.member_principal_id = mp.principal_id)
+  WHERE rp.name = ''db_denydatawriter''
+  '
+EXEC sp_MSforeachdb @command 

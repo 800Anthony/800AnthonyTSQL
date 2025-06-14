@@ -1,0 +1,26 @@
+hiya. fyi interesting p2 this morning. replication from nash to its report server was suffering from query timeouts due to large txns being sent. spotted the default timeout is only 1800 secs so will raise to 50000. that will help unclog the system when it otherwise will persistently retry the queries unsuccessfully thereby causing report delay to the end user. here's a great query that clearly shows any replication query timeouts caused by excessive data load -
+
+
+SELECT da.publisher_db, 
+       da.subscriber_db,
+       CASE dh.runstatus
+            WHEN 1 THEN 'Start'
+            WHEN 2 THEN 'Succeed'
+            WHEN 3 THEN 'Running'
+            WHEN 4 THEN 'Idle'
+            WHEN 5 THEN 'Retry'
+            WHEN 6 THEN 'Fail'
+       END AS run_status, 
+       dh.time AS message_time, 
+       dh.current_delivery_rate, 
+       dh.current_delivery_latency, 
+       dh.delivery_rate,
+       dh.delivery_latency, 
+       dh.comments,
+       ROW_NUMBER() OVER(PARTITION BY dh.agent_id ORDER BY dh.timestamp DESC) rn
+FROM DistributorDB.dbo.MSdistribution_history dh
+     INNER JOIN 
+     DistributorDB.dbo.MSdistribution_agents da 
+          ON dh.agent_id = da.id
+
+

@@ -1,0 +1,32 @@
+﻿
+
+
+
+/****** Script for SelectTopNRows command from SSMS  ******/
+SELECT TOP 1000 [StatsDate]
+      ,[ServerName]
+      ,[DatabaseName]
+      ,[SchemaName]
+      ,[TableName]
+      ,[IndexName]
+      ,[IndexID]
+      ,[User_Seeks]
+      ,[User_Scans]
+      ,[User_Lookups]
+      ,[User_Updates]
+      ,[System_Seeks]
+      ,[System_Scans]
+      ,[System_Lookups]
+      ,[System_Updates]
+  FROM [_Utilities].[dbo].[vw_IndexUsageStats] where databasename not in
+('master','msdb','model','tempdb')
+  and User_Seeks=0
+  and IndexName is not null
+  and User_Scans=0
+  and User_Lookups=0
+  and User_Updates=0
+  and IndexID=2
+
+
+false,false,1
+

@@ -1,0 +1,103 @@
+use dbatoolbox 
+go
+-- Create table to hold output of stored procedure
+IF OBJECT_ID('dbo.SQL_RSS') IS NULL
+begin
+CREATE TABLE SQL_RSS (
+BlogTitle VARCHAR(400) not null,
+BlogUrl VARCHAR(MAX),
+BlogDate VARCHAR(MAX),
+BlogDescription VARCHAR(MAX)
+)
+ALTER TABLE SQL_RSS ADD CONSTRAINT PK_sqlrss PRIMARY KEY NONCLUSTERED
+( BlogTitle ASC )
+WITH (IGNORE_DUP_KEY = ON) ON [PRIMARY]
+end
+go
+
+CREATE PROCEDURE [dbo].[httpGET]
+(
+	@url NVARCHAR(4000),
+	@ResponseText NVARCHAR(MAX) OUTPUT
+)
+AS
+BEGIN
+	BEGIN TRY
+		DECLARE @Object as Int;
+		 
+		EXEC sp_OACreate 'MSXML2.XMLHTTP', @Object OUT;
+		EXEC sp_OAMethod @Object, 'open', NULL, 'GET', @url,'false';
+		EXEC sp_OAMethod @Object, 'send', null;
+	
+		DECLARE @TABLEVAR TABLE (responseXml VARCHAR(MAX))
+		INSERT INTO @TABLEVAR
+			EXEC sp_OAGetProperty @Object, 'responseText';
+		SET @ResponseText = '';
+		
+		SELECT @ResponseText = responseXml FROM @TABLEVAR
+
+	END TRY
+	BEGIN CATCH
+		print 'Exception in httpGET';
+	END CATCH
+    Exec sp_OADestroy @Object;
+END
+
+GO
+CREATE PROCEDURE [dbo].[LatestBlogPosts]
+(
+	@url NVARCHAR(4000)
+)
+AS
+BEGIN
+	BEGIN TRY
+		DECLARE @ResponseText as NVARCHAR(MAX) = '';
+		EXEC [dbo].[httpGET] @url = @url, @ResponseText = @ResponseText OUTPUT;
+
+		DECLARE @xml XML = cast(REPLACE(@ResponseText, 'encoding="UTF-8"', '') as xml);
+		
+		insert into dbo.SQL_RSS
+		SELECT  x.xmlNode.value('(title)[1]', 'varchar(400)') as BlogTitle,
+				x.xmlNode.value('(link)[1]', 'varchar(max)') as BlogUrl,
+				x.xmlNode.value('(pubDate)[1]', 'varchar(max)') as BlogDate,
+				x.xmlNode.value('(description)[1]', 'varchar(max)') as BlogDescription
+		FROM @xml.nodes('/rss/channel/item') x(xmlNode)
+
+	END TRY
+	BEGIN CATCH
+		print 'Exception';
+	END CATCH
+END
+GO
+
+sp_configure 'show advanced options', 1;  
+GO  
+RECONFIGURE;  
+GO  
+sp_configure 'Ole Automation Procedures', 1;  
+GO  
+RECONFIGURE;  
+GO  
+
+EXEC [dbo].[LatestBlogPosts] @url = 'https://techcommunity.microsoft.com/plugins/custom/microsoft/o365/custom-blog-rss?tid=-3738804542841453105&board=SQLServer&label=SQLReleases&messages=&size=10';
+go
+sp_configure 'show advanced options', 1;
+GO
+RECONFIGURE;
+GO
+sp_configure 'Ole Automation Procedures', 0;
+GO
+RECONFIGURE;
+GO
+DROP  PROCEDURE [dbo].[httpGET]
+DROP PROCEDURE [dbo].[LatestBlogPosts]
+
+---------------------------------CONSUME RSS------------------------------------------
+
+select top 1 2017 as SQLVer,cast(substring(cast(SERVERPROPERTY('ProductUpdateLevel') as varchar(max)),3,2) as int) as CurrentCU,cast(SUBSTRING(BlogTitle,CHARINDEX('#',BlogTitle)+1,2) as int) LatestCU,  
+cast(RIGHT(LEFT(BlogDate, LEN(BlogDate)-13) , LEN(LEFT(BlogDate, LEN(BlogDate)-13) ) - 4) as date)
+as NotificationDate 
+from dbo.SQL_RSS where BlogTitle like '%cum%sql server 2017%' 
+order by 4 desc, 3 desc
+
+

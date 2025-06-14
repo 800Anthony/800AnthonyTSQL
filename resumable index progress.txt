@@ -1,0 +1,9 @@
+SELECT 
+name as index_name,
+percent_complete, 
+state_desc, 
+start_time,
+last_pause_time, 
+total_execution_time AS ExecutionMin,
+(total_execution_time / percent_complete) * (100-percent_complete) AS ApproxMinToComplete
+FROM sys.index_resumable_operations;

@@ -1,0 +1,5 @@
+SELECT writes 
+  FROM sys.dm_exec_requests WHERE session_id = <x>;
+
+SELECT COUNT(*) FROM sys.dm_db_database_page_allocations
+(<dbid>, OBJECT_ID(N'dbo.newtablename'), 0, NULL, 'LIMITED');

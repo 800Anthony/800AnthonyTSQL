@@ -1,0 +1,735 @@
+﻿
+
+
+
+###
+
+
+#
+
+
+# ScriptDatabase.ps1
+
+
+#
+
+
+# Takes the parameters sqlserver, database and path and scripts a set of
+objects
+
+
+# to a folder structure based on
+[path]\[database]\[Tables|Views|StoredProcedures|...].
+
+
+# The database objects are scripted in TSQL to files
+[objectname].[objecttype].sql
+
+
+#
+
+
+
+
+# Declare the parameters used by this script.
+
+
+# Details of their usage found in the Usage function or documentation
+
+
+Param
+
+
+[string]$hostname="localhost"
+
+
+,[string]$instance=
+
+
+,[string]$database
+
+
+,[string]$path=".\"
+
+
+,[string]$grouping="both"
+
+
+,[string]$objects="all"
+
+
+,[switch]$sysobjects
+
+
+,[switch]$verbose
+
+
+,[switch]$help
+
+
+
+function Usage ([string] $txtmsg="HELP: scriptdatabase usage
+instructions")
+
+
+{
+
+
+Write-Host
+
+
+Write-host $txtmsg
+
+
+Write-Host
+
+
+Write-Host "DESC: scriptdatabase extracts objects from a database into
+TSQL files. The following objects are"
+
+
+Write-Host " available with the -objects switch: Tables, Views,
+Procedures, Schemas, Functions, Triggers"
+
+
+Write-Host
+
+
+Write-Host "The following parameters are available:"
+
+
+Write-Host " -hostname [hostname] Host of the SQL Server. Default:
+localhost"
+
+
+Write-Host " -instance [database instance] SQL Server instance name.
+Default: blank"
+
+
+Write-Host " -database [database name] REQUIRED: The name of the database
+you will script"
+
+
+Write-Host " -path [windows path] Location files and folders written to.
+Default: .\"
+
+
+Write-Host " -grouping [file|dir|both] How objects are grouped, into dirs
+or by files. Default: both"
+
+
+Write-Host " -objects [object list] List the objects to script. Default:
+All"
+
+
+Write-Host " -sysobjects Include system objects in the scripting"
+
+
+Write-Host " -verbose Log full information to the powershell"
+
+
+Write-Host " -help Display this help menu"
+
+
+Write-Host
+
+
+Write-Host " You may use the least amount of characters to required to
+uniquely identify a switch"
+
+
+Write-Host " Ie. -p replaces -path but -h could be -hostname or -help
+(use -ho or -he respectively)"
+
+
+Write-Host
+
+
+Write-Host "Examples:"
+
+
+Write-Host " scriptdatabase -database Mydatabase"
+
+
+Write-Host " scriptdatabase -hostname MyServer -instance MyInstance
+-database MyDatabase -path C:\temp"
+
+
+Write-Host " scriptdatabase -ho Myserver -i MyInstance -d MyDatabase -p
+C:\temp"
+
+
+Write-Host " scriptdatabase -database MyDatabase -verbose"
+
+
+Write-Host " scriptdatabase -database MyDatabase -objects
+""Tables,Views,Procedures"""
+
+
+Break
+
+
+}
+
+
+
+
+
+If($help){Usage}
+
+
+
+
+
+# Error Traps
+
+
+# General error message
+
+
+trap {
+
+
+write-host
+
+
+write-host "ERROR: Unknown error trapped"
+
+
+write-host $_.Exception.GetType().FullName
+
+
+write-host
+
+
+break
+
+
+}
+
+
+
+# Catch error if sql client is missing
+
+
+trap [System.Management.Automation.PSArgumentException]{
+
+
+write-host
+
+
+write-host "ERROR: couldn't load the sql server client library"
+
+
+write-host
+
+
+break
+
+
+}
+
+
+
+trap [Microsoft.SqlServer.Management.Common.ConnectionFailureException]{
+
+
+write-host
+
+
+write-host "ERROR: Couldn't connect to the SQL Server, check hostname
+(and instance)."
+
+
+write-host
+
+
+break
+
+
+}
+
+
+
+trap [Microsoft.SqlServer.Management.Common.InvalidArgumentException]{
+
+
+write-host
+
+
+write-host "ERROR: Couldn't connect to the database."
+
+
+write-host
+
+
+break
+
+
+}
+
+
+# End of Error Traps
+
+
+
+
+
+# Check parameters that have been passed
+
+
+$error=$false
+
+
+
+# Validate the hostname
+
+
+If (!($hostname -eq "localhost"))
+
+
+{
+
+
+If (!($hostname -match
+"^(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9])\.)*([A-Za-z]|[A-Za-z]
+[A-Za-z0-9\-]*[A-Za-z0-9])$"))
+
+
+{
+
+
+"ERROR: You have specified an invalid hostname: $hostname"
+
+
+$error=$true
+
+
+}
+
+
+ElseIf ($hostname.Length -gt 255)
+
+
+{
+
+
+"ERROR: You have specified an invalid hostname longer than 255 characters"
+
+
+$error=$true
+
+
+}
+
+
+}
+
+
+
+# Validate the instance
+
+
+
+# Validate the database
+
+
+# Is the database null
+
+
+If($database -eq "")
+
+
+{
+
+
+"ERROR: You must specify a valid database $database"
+
+
+$error=$true
+
+
+}
+
+
+# Does the database have valid characters
+
+
+ElseIf(!($database -match "^([a-zA-Z0-9][a-zA-Z0-9_]*[a-zA-Z0-9])$"))
+
+
+{
+
+
+"ERROR: You must specify a valid database $database"
+
+
+$error=$true
+
+
+}
+
+
+# Is the database the correct length
+
+
+ElseIf ($database.Length -gt 128)
+
+
+{
+
+
+"ERROR: You have specified an invalid hostname longer than 255 characters"
+
+
+$error=$true
+
+
+}
+
+
+
+# Validate the path
+
+
+
+# Validate the grouping
+
+
+If (!($grouping -match "^(dir|file|both)$"))
+
+
+{
+
+
+"ERROR: You have specified an invalid grouping: $grouping"
+
+
+$error=$true
+
+
+}
+
+
+
+# Validate the objects
+
+
+If (!($objects -eq "all"))
+
+
+{
+
+
+# Need a method of checking to comma seperated list, in a regexp?
+
+
+If (!($objects -match
+"^((tables|views|procedures|functions|triggers)|((tables|views|procedures|f
+unctions|triggers),(tables|views|procedures|functions|triggers)))$"))
+
+
+{
+
+
+"ERROR: You have specified an invalid object: $objects"
+
+
+$error=$true
+
+
+}
+
+
+}
+
+
+
+If ($error -eq $true){Usage("Correct errors and try again")}
+
+
+
+# Finished input validation
+
+
+
+
+Function ScriptObjects ($objects,[string]$objecttype,[switch]$schema)
+
+
+{
+
+
+If ($script:grouping -match "^(dir|both)$")
+
+
+{
+
+
+$objectpath=$script:path + $script:database + "\" + $objecttype + "s"
+
+
+}
+
+
+Else
+
+
+{
+
+
+$objectpath=$script:path + $script:database
+
+
+}
+
+
+
+# Check for the schema path
+
+
+$pathexist = Test-Path $objectpath
+
+
+If ($pathexist -eq $False)
+
+
+{
+
+
+If($Script:Verbose){Write-Host "Creating directory $objectpath"}
+
+
+New-Item $objectpath -type directory
+
+
+}
+
+
+
+# Iterate through the objects
+
+
+# The -replace regex removes invalid characters from the object name
+
+
+ForEach ( $obj in $objects )
+
+
+{
+
+
+# Develop the file name
+
+
+If ($schema) {$fileschema=($obj.Schema -replace '\\|\/|#|\$|&|:|;','.') +
+"."}
+
+
+If ($script:grouping -match "^(file|both)$") {$fileobject = "." +
+$objecttype}
+
+
+$filename = $objectpath + '\' + $fileschema + ($obj.Name -replace
+'\\|\/|#|\$|&|:|;','.')+ $fileobject + ".sql"
+
+
+
+# Script (and log) the object to the file named above.
+
+
+If ($script:sysobjects)
+
+
+{
+
+
+If($Script:Verbose){Write-Host "Scripting $objecttype" $obj.Name " to
+file " $filename}
+
+
+$obj.Script() | Out-File $filename
+
+
+}
+
+
+ElseIf ( $obj.IsSystemObject -eq $False )
+
+
+{
+
+
+If($Script:Verbose){Write-Host "Scripting $objecttype" $obj.Name " to
+file " $filename}
+
+
+$obj.Script() | Out-File $filename
+
+
+}
+
+
+}
+
+
+}
+
+
+
+
+
+
+If ($verbose)
+
+
+{
+
+
+"Hostname : " + $hostname
+
+
+"Instance : " + $instance
+
+
+"Database : " + $database
+
+
+"Path : " + $path
+
+
+"Grouping : " + $grouping
+
+
+"Objects : " + $objects
+
+
+"SysObjects : " + $sysobjects
+
+
+"Verbose : " + $verbose
+
+
+}
+
+
+
+
+# Load the SMO objects and open the server and database.
+
+
+$sqlserver=$hostname
+
+
+If($Instance) {$sqlserver=$sqlserver + "\" + $instance}
+
+
+[System.Reflection.Assembly]::LoadWithPartialName('Microsoft.SqlServer.Smo'
+) | Out-Null
+
+
+$srv = New-Object ('Microsoft.SqlServer.Management.Smo.Server') $sqlserver
+
+
+#$db = New-Object ('Microsoft.SqlServer.Management.Smo.Database') # Don't
+think this does anything useful
+
+
+$db = $srv.Databases.Item($database)
+
+
+If (!($db)) { throw (new-object
+"Microsoft.SqlServer.Management.Common.InvalidArgumentException")}
+
+
+
+$fullpath = $path + $database
+
+
+
+# Output information to the command shell
+
+
+If($Script:Verbose){Write-Host "Scripting objects for the" $db.Name
+"database to $fullpath"}
+
+
+
+
+
+# Create the database creation script
+
+
+# Check for existance of the [database] destination directory
+
+
+$pathexist = Test-Path $fullpath
+
+
+If ($pathexist -eq $False)
+
+
+{
+
+
+If($verbose){Write-Host "Creating directory $fullpath"}
+
+
+New-Item $fullpath -type directory
+
+
+}
+
+
+# Create the database script
+
+
+$filename = $fullpath + '\' + $db.Name + ".Database.sql"
+
+
+If ($verbose){Write-Host "Scripting object " $db.Name " to file "
+$filename}
+
+
+$db.Script() | Out-File $filename
+
+
+
+
+
+# Match the objects requested and call the ScriptObjects function passing
+the database objects
+
+
+If ($objects -match "^all$|schemas") {ScriptObjects $db.Schemas "Schema"}
+
+
+If ($objects -match "^all$|tables") {ScriptObjects $db.Tables "Table"
+-schema}
+
+
+If ($objects -match "^all$|views") {ScriptObjects $db.Views "View"
+-schema}
+
+
+If ($objects -match "^all$|procedures") {ScriptObjects
+$db.StoredProcedures "StoredProcedure" -schema}
+
+
+If ($objects -match "^all$|triggers") {ScriptObjects $db.Triggers
+"Trigger"}
+
+
+If ($objects -match "^all$|functions") {ScriptObjects
+$db.UserDefinedFunctions "Function" -schema}
+
+
+
+# ScriptObjects $db.ApplicationRoles "ApplicationRole"
+
+
+
+ 
+
+
+

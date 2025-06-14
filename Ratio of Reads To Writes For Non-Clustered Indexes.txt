@@ -1,0 +1,103 @@
+
+
+-- Displays the read-to-update ratio of all indexes.  Good for finding ones that may not be needed.
+DECLARE @dbid INT = DB_ID(DB_NAME())
+
+; WITH cteUser AS
+(
+    SELECT object_id,
+           index_id,
+           user_seeks + user_scans + user_lookups   AS 'User Reads',
+           user_updates                             AS 'User Updates'
+      FROM sys.dm_db_index_usage_stats   
+     WHERE database_id = @dbid
+)
+,
+cteSystem AS
+(
+    SELECT object_id,
+           index_id,
+           system_seeks + system_scans + system_lookups   AS 'System Reads',
+           system_updates                                 AS 'System Updates'
+      FROM sys.dm_db_index_usage_stats   
+     WHERE database_id = @dbid
+)
+,
+cteTotal AS
+(
+    SELECT u.object_id,
+           u.index_id,
+           [User Reads]   + [System Reads]     AS 'Total Reads',
+           [User Updates] + [System Updates]   AS 'Total Updates'
+      FROM cteUser     u
+      JOIN cteSystem   s
+        ON u.object_id = s.object_id
+       AND u.index_id  = s.index_id
+)
+,
+cteReadToUpdateRatio AS
+(
+    SELECT object_id,
+           index_id,
+           CONVERT(NVARCHAR,
+                  CONVERT(MONEY, ISNULL(
+                                        CAST([Total Reads] AS REAL)
+                                        /
+                                        NULLIF([Total Updates], 0.0)
+                                        , [Total Reads]
+                                        )
+                               , 1
+                         )
+                  )   AS 'Read-to-Update Ratio'
+                  
+      FROM cteTotal
+)
+SELECT --OBJECT_SCHEMA_NAME(i.object_id)                                                                  AS 'SchemaName',
+       OBJECT_NAME(i.object_id)                                                                         AS 'TableName',
+       i.name                                                                                           AS 'IndexName',
+       i.index_id,
+       i.type_desc as IndexType,
+       x.[Indexsize(KB)],
+       REPLACE(CONVERT(NVARCHAR, CONVERT(MONEY, u.[User Reads]),                      1), '.00', '')    AS 'UserReads',                   
+       REPLACE(CONVERT(NVARCHAR, CONVERT(MONEY, u.[User Updates]),                    1), '.00', '')    AS 'UserUpdates',                 
+       REPLACE(CONVERT(NVARCHAR, CONVERT(MONEY, s.[System Reads]),                    1), '.00', '')    AS 'SystemReads',                 
+       REPLACE(CONVERT(NVARCHAR, CONVERT(MONEY, s.[System Updates]),                  1), '.00', '')    AS 'SystemUpdates',               
+       REPLACE(CONVERT(NVARCHAR, CONVERT(MONEY, t.[Total Reads]),                     1), '.00', '')    AS 'TotalReads',                
+       REPLACE(CONVERT(NVARCHAR, CONVERT(MONEY, t.[Total Updates]),                   1), '.00', '')    AS 'TotalUpdates',                
+                                                r.[Read-to-Update Ratio]                                AS 'Read-to-Update Ratio',         
+       REPLACE(CONVERT(NVARCHAR, CONVERT(MONEY, t.[Total Reads] + t.[Total Updates]), 1), '.00', '')    AS 'Total Reads + Total Updates'
+  FROM cteUser                        u
+  JOIN cteSystem                      s
+    ON u.object_id = s.object_id
+   AND u.index_id  = s.index_id
+  JOIN cteTotal                       t
+    ON u.object_id = t.object_id
+   AND u.index_id  = t.index_id
+  JOIN cteReadToUpdateRatio           r
+    ON u.object_id = r.object_id
+   AND u.index_id  = r.index_id
+  JOIN sys.indexes                    i
+    ON u.object_id = i.object_id
+   AND u.index_id  = i.index_id
+  JOIN sys.objects                    o
+    ON u.object_id = o.object_id
+    join
+    (SELECT
+OBJECT_NAME(i.OBJECT_ID) AS TableName,
+i.name AS IndexName,
+i.index_id AS IndexID,
+8 * SUM(a.used_pages) AS 'Indexsize(KB)'
+FROM sys.indexes AS i
+JOIN sys.partitions AS p ON p.OBJECT_ID = i.OBJECT_ID AND p.index_id = i.index_id
+JOIN sys.allocation_units AS a ON a.container_id = p.partition_id
+GROUP BY i.OBJECT_ID,i.index_id,i.name
+)x
+on OBJECT_NAME(i.object_id)=x.TableName and i.name=x.IndexName
+ WHERE OBJECTPROPERTY(o.object_id, 'IsUserTable') = 1
+   --AND i.is_primary_key = 0
+   and CAST(r.[Read-to-Update Ratio] AS REAL)>4
+   --and OBJECT_NAME(i.object_id) not like '%line%'
+   and i.type_desc<>'CLUSTERED'
+   order by 5 desc
+ 
+

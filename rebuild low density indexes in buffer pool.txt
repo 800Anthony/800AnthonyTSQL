@@ -1,0 +1,23 @@
+drop table if exists dbatoolbox.dbo.buff
+
+exec dbatoolbox.[dbo].[ReportObjectsUsingBuffer] 'raptor','dbatoolbox.dbo.buff'
+
+declare @sql varchar(max)=''
+select top 5 @sql=@sql+'raptor'+'.'+'['+schemaname+']'+'.'+tablename+'.'+indexname+',' from dbatoolbox.dbo.buff 	where schemaname not like '%sys%' ORDER BY FreeSpaceMB desc
+select @sql=REVERSE(SUBSTRING(REVERSE(@sql), 2, 9999))
+
+EXECUTE [DBAToolbox].[dbo].[IndexOptimize]
+	@Databases = 'Raptor',
+  @FragmentationMedium  = 'INDEX_REORGANIZE,INDEX_REBUILD_ONLINE',
+  @FragmentationHigh  = 'INDEX_REBUILD_ONLINE',
+  @FragmentationLevel1  = 5,
+  @FragmentationLevel2  = 30,	
+	@LogToTable = 'Y',
+	@Resumable = 'Y',
+	@Execute = 'Y',
+	@TimeLimit = 7200,
+	@WaitAtLowPriorityMaxDuration = 10,
+  @WaitAtLowPriorityAbortAfterWait  = 'SELF',
+  @indexes =@sql
+
+

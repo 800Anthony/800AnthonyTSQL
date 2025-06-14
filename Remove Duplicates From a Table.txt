@@ -1,0 +1,42 @@
+﻿
+
+
+CREATE TABLE T1
+(
+ProductName varchar(50)
+)
+
+INSERT INTO T1
+VALUES
+('Computer'),
+('Computer'),
+('Printer'),
+('Printer'),
+('Printer'),
+('Scanner'),
+('Scanner'),
+('Scanner'),
+('Scanner'),
+('Camera'),
+('Flash Drive'),
+('Flash Drive')
+
+ 
+
+DELETE D FROM
+    (
+    SELECT ProductName, ROW_NUMBER()OVER(ORDER BY ProductName) AS
+RowNum
+    FROM T1
+    )D
+    JOIN
+    (
+    SELECT ProductName, ROW_NUMBER()OVER(ORDER BY ProductName) AS
+RowNum
+    FROM T1
+    )E
+on D.ProductName = E.ProductName
+AND D.RowNum < E.RowNum  
+
+
+

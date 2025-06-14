@@ -1,0 +1,43 @@
+/*
+    This proc goes through all SQL Server agent jobs and finds any that refer to a database taking part in the Availability Group 
+    It will then enable/disable the job dependant on whether the server is the primary replica or not   
+    Primary Replica = enable job
+    It will also add a comment to the job indicating the job was updated by this proc
+*/
+CREATE PROCEDURE dbo.sp_HADRAgentJobFailover (@AGname varchar(200) = 'AG01' )
+AS 
+
+DECLARE @SQL NVARCHAR(MAX)
+
+;WITH DBinAG AS (  -- This finds all databases in the AG and determines whether Jobs targeting these DB's should be turned on (which is the same for all db's in the AG)
+SELECT  distinct
+        runJobs = CASE WHEN role_desc = 'Primary' THEN 1 ELSE 0 END   --If this is the primary, then yes we want to run the jobs
+        ,dbname = db.name
+        ,JobDescription = CASE WHEN hars.role_desc = 'Primary'  -- Add the reason for the changing the state to the Jobs description
+                THEN '~~~ [Enabled] using automated process (DBA_tools.dbo.sp_HADRAgentJobFailover) looking for jobs running against Primary Replica AG ~~~ '
+                ELSE '~~~ [Diabled] using Automated process (DBA_tools.dbo.sp_HADRAgentJobFailover) because the job cant run on READ-ONLY Replica AG~~~ ' END 
+FROM sys.dm_hadr_availability_replica_states hars
+INNER JOIN sys.availability_groups ag ON ag.group_id = hars.group_id
+INNER JOIN sys.Databases db ON  db.replica_id = hars.replica_id
+WHERE is_local = 1
+AND ag.Name = @AGname
+) 
+
+SELECT @SQL = (
+SELECT DISTINCT N'exec msdb..sp_update_job @job_name = ''' + j.name + ''', @enabled = ' + CAST(d.runJobs AS VARCHAR) 
+                + ',@description = ''' 
+                + CASE WHEN j.description = 'No description available.' THEN JobDescription -- if there is no description just add our JobDescription
+                       WHEN PATINDEX('%~~~%~~~',j.description) = 0 THEN j.description + '    ' + JobDescription  -- If our JobDescription is NOT there, add it
+                       WHEN PATINDEX('%~~~%~~~',j.description) > 0 THEN SUBSTRING(j.description,1,CHARINDEX('~~~',j.description)-1) + d.JobDescription  --Replace our part of the job description with what we are doing.
+                       ELSE d.JobDescription  -- Should never reach here...
+                    END 
+                + ''';'
+FROM msdb.dbo.sysjobs j
+INNER JOIN msdb.dbo.sysjobsteps s
+INNER JOIN DBinAG d ON d.DbName =s.database_name     
+ON j.job_id = s.job_id
+WHERE j.enabled != d.runJobs   -- Ensure we only actually update the job, if it needs to change
+FOR XML PATH ('')
+)
+PRINT REPLACE(@SQL,';',CHAR(10))
+EXEC sys.sp_executesql @SQL

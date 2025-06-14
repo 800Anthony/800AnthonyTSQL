@@ -1,0 +1,43 @@
+How to remove Transparent Data Encryption completely.
+
+Step:1 DISABLE ENCRYPTION at database level.
+
+First step is to disable database encryption for all user DBs using below command.
+
+USE [ReportServerTempDB]
+Go
+ALTER DATABASE [ReportServerTempDB] SET ENCRYPTION OFF
+GO
+
+Step:2 DROP DATABASE ENCRYPTION KEY
+
+Now drop the database encryption key for all user DBs using below command.
+
+USE [ReportServerTempDB]
+Go
+DROP DATABASE ENCRYPTION KEY
+
+
+Step:3 DROP CERTIFICATE from master database
+
+Now drop the server level certificate using below command.
+
+USE master
+Go
+DROP CERTIFICATE TDE_DEVFARM_default;
+Go
+
+Step:4  DROP MASTER KEY from master database
+
+Now drop the server level master key using below command.
+
+USE master
+Go
+DROP MASTER KEY;
+
+In order to remove TDE completely we need to restart the instance after performing all the above 4 steps.
+
+To verify the status of database encryption on each database we can use below system tables:
+
+select * from  sys.dm_database_encryption_keys
+select * from sys.certificates

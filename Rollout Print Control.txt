@@ -1,0 +1,13 @@
+﻿
+
+When a patch e.g. CU has been successfully tested in development, we need
+to check the print control cab file to see if there is a new version.
+This done by checking the dll version number and comparing with live. On
+RCBPARS0825, the cab lives here -
+
+- \\rcbpars0825\c$\Program Files\Microsoft SQL
+Server\MSRS10_50.MSSQLSERVER\Reporting
+Services\ReportServer\bin\RSClientPrint-x86.cab.
+
+
+

@@ -1,0 +1,25 @@
+//needs Install-Module AzureRM
+
+# Parameters
+$resourceGroupName = "YourResourceGroupName"
+$managedInstanceName = "YourManagedInstanceName"
+$databaseName = "YourDatabaseName"
+$newDatabaseName = "YourNewDatabaseName"
+$pointInTime = (Get-Date).AddHours(-1) # Adjust this to your desired point in time
+
+# Get the managed instance object
+$managedInstance = Get-AzSqlInstance -ResourceGroupName $resourceGroupName -Name $managedInstanceName
+
+# Restore the database
+$restoreOperation = Restore-AzSqlInstanceDatabase `
+    -FromPointInTimeBackup `
+    -ResourceGroupName $resourceGroupName `
+    -InstanceName $managedInstanceName `
+    -Name $databaseName `
+    -PointInTime $pointInTime `
+    -TargetInstanceDatabaseName $newDatabaseName
+
+# Wait for the restore operation to complete
+$restoreOperation | Wait-AzSqlInstanceDatabaseRestoreOperation
+
+Write-Host "Database restore completed successfully."

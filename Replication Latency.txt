@@ -1,0 +1,67 @@
+Declare @Publisher sysname,
+      @PublisherDB sysname;
+ 
+-- Set Publisher server name
+Set @Publisher = 'LAPPWNV4PDB01';
+-- Set Publisher database name
+Set @PublisherDB = 'ExceliDB_NASH'; 
+ 
+-- Refresh replication monitor data
+Exec sys.sp_replmonitorrefreshjob @iterations = 1;
+ 
+With MaxXact (ServerName, PublisherDBID, XactSeqNo)
+As (Select S.name, DA.publisher_database_id, max(H.xact_seqno)
+      From dbo.MSdistribution_history H with(nolock)
+      Inner Join dbo.MSdistribution_agents DA with(nolock)
+            On DA.id = H.agent_id
+      Inner Join master.sys.servers S with(nolock)
+            On S.server_id = DA.subscriber_id
+      Where DA.publisher_db = @PublisherDB
+      Group By S.name, DA.publisher_database_id)
+, OldestXact (ServerName, OldestEntryTime)
+As (Select MX.ServerName, Min(entry_time)
+      From dbo.msrepl_transactions T with(nolock)
+      Inner Join MaxXact MX
+            On MX.XactSeqNo < T.xact_seqno
+            And MX.PublisherDBID = T.publisher_database_id
+      Group By MX.ServerName)
+Select [Replication Status] = Case MD.status
+                  When 1 Then 'Started'
+                  When 2 Then 'Succeeded'
+                  When 3 Then 'In progress'
+                  When 4 Then 'Idle'
+                  When 5 Then 'Retrying'
+                  When 6 Then 'Failed'
+            End,
+      Subscriber = SubString(MD.agent_name, 
+                              Len(MD.publisher) + Len(MD.publisher_db) + Len(MD.publication) + 4, 
+                              Charindex('-', MD.agent_name, 
+                                    Len(MD.publisher) + Len(MD.publisher_db) + Len(MD.publication) + 5) - 
+                                          (Len(MD.publisher) + Len(MD.publisher_db) + Len(MD.publication) + 4)), 
+      [Subscriber DB] = A.subscriber_db, 
+      [Publisher DB] = MD.publisher_db, 
+      Publisher = MD.publisher,
+      [Current Latency (sec)] = MD.cur_latency,
+      [Current Latency (hh:mm:ss)] = Right('00' + Cast(MD.cur_latency/3600 As varchar), 2) +
+                                                ':' + Right('00' + Cast((MD.cur_latency%3600)/60 As varchar), 2) +
+                                                ':' + Right('00' + Cast(MD.cur_latency%60 As varchar), 2),
+      [Latency Threshold (min)] = Cast(T.value As Int),
+      [Agent Last Stopped (sec)] = DateDiff(hour, agentstoptime, getdate()) - 1, 
+      [Agent Last Sync] = MD.last_distsync,
+      [Last Entry TimeStamp] = OX.OldestEntryTime
+From dbo.MSreplication_monitordata MD with(nolock)
+Inner Join dbo.MSdistribution_agents A with(nolock)
+      On A.id = MD.agent_id
+Inner Join dbo.MSpublicationthresholds T with(nolock)
+      On T.publication_id = MD.publication_id
+      And T.metric_id = 2 -- Latency
+Inner Join OldestXact OX
+      On OX.ServerName = SubString(MD.agent_name, 
+                              Len(MD.publisher) + Len(MD.publisher_db) + Len(MD.publication) + 4, 
+                              Charindex('-', MD.agent_name, 
+                                    Len(MD.publisher) + Len(MD.publisher_db) + Len(MD.publication) + 5) - 
+                                          (Len(MD.publisher) + Len(MD.publisher_db) + Len(MD.publication) + 4))
+Where MD.publisher = @Publisher
+And MD.publisher_db = @PublisherDB
+And MD.publication_type = 0 -- 0 = Transactional publication
+And MD.agent_type = 3; -- 3 = distribution agent

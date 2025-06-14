@@ -1,0 +1,4 @@
+SELECT NAME
+FROM sys.server_principals
+WHERE substring(NAME, 0, (charindex('\', NAME))) <> DEFAULT_DOMAIN()
+	AND NAME LIKE 'DM%'

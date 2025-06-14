@@ -1,0 +1,17 @@
+﻿
+
+
+SELECT name
+
+FROM sysdatabases
+
+WHERE name NOT IN ( SELECT DISTINCT
+
+dbname
+
+FROM [master].[dbo].[audit_database] )
+
+AND name NOT IN ( 'msdb', 'master', 'tempdb', 'model' )
+
+
+

@@ -1,0 +1,16 @@
+ALTER DATABASE VeeamBackup SET emergency;
+GO
+
+ALTER DATABASE VeeamBackup set single_user
+GO
+
+--DBCC CHECKDB ([DBName], REPAIR_ALLOW_DATA_LOSS) WITH ALL_ERRORMSGS;
+--GO 
+
+ALTER DATABASE VeeamBackup set multi_user
+GO
+
+ALTER DATABASE VeeamBackup SET online;
+GO
+
+

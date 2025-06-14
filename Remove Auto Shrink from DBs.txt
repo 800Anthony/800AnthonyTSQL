@@ -1,0 +1,32 @@
+﻿
+
+DECLARE @DataBase sysname
+
+DECLARE database_cursor CURSOR
+FOR SELECT
+quotename(name) as Base
+FROM
+master..sysdatabases
+WHERE
+DATABASEPROPERTYEX(name,'Status')='ONLINE'
+AND DATABASEPROPERTYEX(name,'IsAutoShrink') = 1
+
+OPEN database_cursor
+FETCH NEXT
+FROM database_cursor
+INTO @Base
+
+WHILE @@FETCH_STATUS = 0
+BEGIN
+EXEC ('ALTER DATABASE ' + @BASE + ' SET AUTO_SHRINK OFF')
+
+FETCH NEXT
+FROM database_cursor
+INTO @Base
+END
+CLOSE database_cursor
+DEALLOCATE database_cursor
+GO
+
+
+

@@ -1,0 +1,33 @@
+USE [master]
+
+RESTORE DATABASE [Raptor]
+FROM URL = N'https://dbbtgsqlbackups.blob.core.windows.net/sql-backups-availabilitygroup/WAN_AG2/Raptor/FULL/Raptor_FULL_20200724_050001.bak' WITH FILE = 1, 
+	MOVE N'Raptor' TO N'F:\SQL_Data\RaptorArch\Raptor.mdf', MOVE N'Raptor1' TO N'F:\SQL_Data\RaptorArch\Raptor1.ndf', MOVE N'Raptor2' TO 
+	N'F:\SQL_Data\RaptorArch\Raptor2.ndf', MOVE N'Raptor3' TO N'F:\SQL_Data\RaptorArch\Raptor3.ndf', MOVE N'Raptor_Bets1' TO 
+	N'F:\SQL_Data\RaptorArch\Raptor_Bets1.ndf', MOVE N'Raptor_Bets2' TO N'F:\SQL_Data\RaptorArch\Raptor_Bets2.ndf', MOVE N'Raptor_Bets3' TO 
+	N'F:\SQL_Data\RaptorArch\Raptor_Bets3.ndf', MOVE N'Raptor_Bets4' TO N'F:\SQL_Data\RaptorArch\Raptor_Bets4.ndf', MOVE N'Raptor_Bets_IDX' TO 
+	N'F:\SQL_Data\RaptorArch\Raptor_Bets_IDX.ndf', MOVE N'Raptor_FeedProviders1' TO N'F:\SQL_Data\RaptorArch\Raptor_FeedProviders1.ndf', MOVE 
+	N'Raptor_FeedProviders2' TO N'F:\SQL_Data\RaptorArch\Raptor_FeedProviders2.ndf', MOVE N'Raptor_FeedProviders3' TO 
+	N'F:\SQL_Data\RaptorArch\Raptor_FeedProviders3.ndf', MOVE N'Raptor_FeedProviders4' TO N'F:\SQL_Data\RaptorArch\Raptor_FeedProviders4.ndf', MOVE 
+	N'Raptor_FeedProviders_IDX' TO N'F:\SQL_Data\RaptorArch\Raptor_FeedProviders_IDX.ndf', MOVE N'Raptor_Live' TO 
+	N'F:\SQL_Data\RaptorArch\Raptor_Live.ndf', MOVE N'Raptor_Live_Bets' TO N'F:\SQL_Data\RaptorArch\Raptor_Live_Bets.ndf', MOVE 
+	N'Raptor_Live_Bets_IDX' TO N'F:\SQL_Data\RaptorArch\Raptor_Live_Bets_IDX.ndf', MOVE N'Raptor_Misc' TO N'F:\SQL_Data\RaptorArch\Raptor_Misc.ndf', 
+	MOVE N'Raptor_Prints' TO N'F:\SQL_Data\RaptorArch\Raptor_Prints.ndf', MOVE N'Raptor_Program' TO N'F:\SQL_Data\RaptorArch\Raptor_Program.ndf', MOVE 
+	N'Raptor_Program_Events_IDX' TO N'F:\SQL_Data\RaptorArch\Raptor_Program_Events_IDX.ndf', MOVE N'Raptor_Program_Markets' TO 
+	N'F:\SQL_Data\RaptorArch\Raptor_Program_Markets.ndf', MOVE N'Raptor_Program_Markets_IDX' TO 
+	N'F:\SQL_Data\RaptorArch\Raptor_Program_Markets_IDX.ndf', MOVE N'Raptor_Program_Odds' TO N'F:\SQL_Data\RaptorArch\Raptor_Program_Odds.ndf', MOVE 
+	N'Raptor_Channels' TO N'F:\SQL_Data\RaptorArch\Raptor_Channels.ndf', MOVE N'Raptor_Program_Odds_IDX' TO 
+	N'F:\SQL_Data\RaptorArch\Raptor_Program_Odds_IDX.ndf', MOVE N'Raptor_Program_Selections' TO 
+	N'F:\SQL_Data\RaptorArch\Raptor_Program_Selections.ndf', MOVE N'Raptor_Program_Selections_IDX' TO 
+	N'F:\SQL_Data\RaptorArch\Raptor_Program_Selections_IDX.ndf', MOVE N'Raptor_Risk' TO N'F:\SQL_Data\RaptorArch\Raptor_Risk.ndf', MOVE 
+	N'Raptor_Risk_IDX' TO N'F:\SQL_Data\RaptorArch\Raptor_Risk_IDX.ndf', MOVE N'Raptor_Settlement' TO N'F:\SQL_Data\RaptorArch\Raptor_Settlement.ndf', 
+	MOVE N'Raptor_SystemAuthorizations' TO N'F:\SQL_Data\RaptorArch\Raptor_SystemAuthorizations.ndf', MOVE N'Raptor_User' TO 
+	N'F:\SQL_Data\RaptorArch\Raptor_User.ndf', MOVE N'Raptor_Wallet' TO N'F:\SQL_Data\RaptorArch\Raptor_Wallet.ndf', MOVE N'ARCHIVE1' TO 
+	N'F:\SQL_Data\RaptorArch\Raptor_ARCHIVE1.ndf', MOVE N'ARCHIVE2' TO N'F:\SQL_Data\RaptorArch\Raptor_ARCHIVE2.ndf', MOVE N'ARCHIVE3' TO 
+	N'F:\SQL_Data\RaptorArch\Raptor_ARCHIVE3.ndf', MOVE N'ARCHIVE4' TO N'F:\SQL_Data\RaptorArch\Raptor_ARCHIVE4.ndf', MOVE N'RAPTOR_CDC_DATA' TO 
+	N'F:\SQL_Data\RaptorArch\RAPTOR_CDC_DATA.ndf', MOVE N'SETTLEMENT_MonthlyFG1' TO N'F:\SQL_Data\RaptorArch\SETTLEMENT_Monthly1.ndf', MOVE 
+	N'SETTLEMENT_MonthlyFG2' TO N'F:\SQL_Data\RaptorArch\SETTLEMENT_Monthly2.ndf', MOVE N'Raptor_Partitioned_Tables' TO 
+	N'F:\SQL_Data\RaptorArch\Raptor_Partitioned_Tables.ndf', MOVE N'Raptor_log' TO N'H:\SQL_Logs\RaptorArch\RaptorSportsbookRaptor_Log.ldf', MOVE 
+	N'Raptor_MOD1' TO N'F:\SQL_Data\RaptorArch\Raptor_MOD1', NOUNLOAD, STATS = 5
+GO
+

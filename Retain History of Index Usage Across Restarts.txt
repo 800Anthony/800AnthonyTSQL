@@ -1,0 +1,1526 @@
+﻿
+
+CREATE TABLE [dbo].[dm_db_index_usage_stats]
+    (
+      [database_id] [smallint] NOT NULL,
+      [object_id] [int] NOT NULL,
+      [index_id] [int] NOT NULL,
+      [user_seeks] [bigint] NOT NULL,
+      [user_scans] [bigint] NOT NULL,
+      [user_lookups] [bigint] NOT NULL,
+      [user_updates] [bigint] NOT NULL,
+      [last_user_seek] [datetime] NULL,
+      [last_user_scan] [datetime] NULL,
+      [last_user_lookup] [datetime] NULL,
+      [last_user_update] [datetime] NULL,
+      [system_seeks] [bigint] NOT NULL,
+      [system_scans] [bigint] NOT NULL,
+      [system_lookups] [bigint] NOT NULL,
+      [system_updates] [bigint] NOT NULL,
+      [last_system_seek] [datetime] NULL,
+      [last_system_scan] [datetime] NULL,
+      [last_system_lookup] [datetime] NULL,
+      [last_system_update] [datetime] NULL,
+      [last_poll_user_seeks] [bigint] NOT NULL,
+      [last_poll_user_scans] [bigint] NOT NULL,
+      [last_poll_user_lookups] [bigint] NOT NULL,
+      [last_poll_user_updates] [bigint] NOT NULL,
+      [last_poll_system_seeks] [bigint] NOT NULL,
+      [last_poll_system_scans] [bigint] NOT NULL,
+      [last_poll_system_lookups] [bigint] NOT NULL,
+      [last_poll_system_updates] [bigint] NOT NULL,
+      [date_stamp] [datetime] NOT NULL,
+      CONSTRAINT [PK_dm_db_index_usage_stats] PRIMARY KEY CLUSTERED
+( [database_id] ASC, [object_id] ASC, [index_id] ASC )
+        WITH ( FILLFACTOR = 90 ) ON [PRIMARY]
+    )
+ON  [PRIMARY]
+
+CREATE NONCLUSTERED INDEX [IX_user_reads] ON
+[dbo].[dm_db_index_usage_stats] ( [user_scans], [user_seeks],
+[user_lookups] )
+    WITH (
+         FILLFACTOR = 80)
+ON  [PRIMARY]
+
+CREATE NONCLUSTERED INDEX [IX_user_writes] ON
+[dbo].[dm_db_index_usage_stats] ( [user_updates] )
+    WITH (
+         FILLFACTOR = 80)
+ON  [PRIMARY]
+
+go
+
+CREATE PROCEDURE dbo.usp_persist_dm_db_index_usage_stats
+AS
+    DECLARE @last_service_start_date DATETIME
+    DECLARE @last_data_persist_date DATETIME
+
+  --Determine last service restart date based upon tempdb creation date
+    SELECT  @last_service_start_date = SD.[create_date]
+    FROM    sys.databases SD
+    WHERE   SD.[name] = 'tempdb'
+
+  --Return the value for the last refresh date of the persisting table
+    SELECT  @last_data_persist_date = MAX(MDDIUS.[date_stamp])
+    FROM    [DBA].[dbo].[dm_db_index_usage_stats] MDDIUS
+
+  --Take care of updated records first
+    IF @last_service_start_date < @last_data_persist_date
+        BEGIN
+       --Service restart date > last poll date
+            PRINT 'The latest persist date was '
+                + CAST(@last_data_persist_date AS
+VARCHAR(50))
+                + '; no restarts occurred since '
+                + CAST(@last_service_start_date AS
+VARCHAR(50)) + '  ('
+                + CAST(DATEDIFF(d,
+@last_service_start_date,
+                               
+@last_data_persist_date) AS VARCHAR(10))
+                + ' days ago.)'
+
+            UPDATE  MDDIUS
+            SET     MDDIUS.[user_seeks] =
+MDDIUS.[user_seeks]
+                    + ( SDDIUS.[user_seeks] -
+MDDIUS.[last_poll_user_seeks] ),
+                    MDDIUS.[user_scans] =
+MDDIUS.[user_scans]
+                    + ( SDDIUS.[user_scans] -
+MDDIUS.[last_poll_user_scans] ),
+                    MDDIUS.[user_lookups] =
+MDDIUS.[user_lookups]
+                    + ( SDDIUS.[user_lookups]
+                        -
+MDDIUS.[last_poll_user_lookups] ),
+                    MDDIUS.[user_updates] =
+MDDIUS.[user_updates]
+                    + ( SDDIUS.[user_updates]
+                        -
+MDDIUS.[last_poll_user_updates] ),
+                    MDDIUS.[last_user_seek] =
+SDDIUS.[last_user_seek],
+                    MDDIUS.[last_user_scan] =
+SDDIUS.[last_user_scan],
+                    MDDIUS.[last_user_lookup] =
+SDDIUS.[last_user_lookup],
+                    MDDIUS.[last_user_update] =
+SDDIUS.[last_user_update],
+                    MDDIUS.[system_seeks] =
+MDDIUS.[system_seeks]
+                    + ( SDDIUS.[system_seeks]
+                        -
+MDDIUS.[last_poll_system_seeks] ),
+                    MDDIUS.[system_scans] =
+MDDIUS.[system_scans]
+                    + ( SDDIUS.[system_scans]
+                        -
+MDDIUS.[last_poll_system_scans] ),
+                    MDDIUS.[system_lookups] =
+MDDIUS.[system_lookups]
+                    + ( SDDIUS.[system_lookups]
+                        -
+MDDIUS.[last_poll_system_lookups] ),
+                    MDDIUS.[system_updates] =
+MDDIUS.[system_updates]
+                    + ( SDDIUS.[system_updates]
+                        -
+MDDIUS.[last_poll_system_updates] ),
+                    MDDIUS.[last_system_seek] =
+SDDIUS.[last_system_seek],
+                    MDDIUS.[last_system_scan] =
+SDDIUS.[last_system_scan],
+                    MDDIUS.[last_system_lookup] =
+SDDIUS.[last_system_lookup],
+                    MDDIUS.[last_system_update] =
+SDDIUS.[last_system_update],
+                    MDDIUS.[last_poll_user_seeks] =
+SDDIUS.[user_seeks],
+                    MDDIUS.[last_poll_user_scans] =
+SDDIUS.[user_scans],
+                    MDDIUS.[last_poll_user_lookups] =
+SDDIUS.[user_lookups],
+                    MDDIUS.[last_poll_user_updates] =
+SDDIUS.[user_updates],
+                    MDDIUS.[last_poll_system_seeks] =
+SDDIUS.[system_seeks],
+                    MDDIUS.[last_poll_system_scans] =
+SDDIUS.[system_scans],
+                    MDDIUS.[last_poll_system_lookups]
+= SDDIUS.[system_lookups],
+                    MDDIUS.[last_poll_system_updates]
+= SDDIUS.[system_updates],
+                    MDDIUS.date_stamp = GETDATE()
+            FROM    [sys].[dm_db_index_usage_stats] SDDIUS
+                    INNER JOIN
+[DBA].[dbo].[dm_db_index_usage_stats] MDDIUS ON SDDIUS.[database_id] =
+MDDIUS.[database_id]
+                                     �
+�                                     
+    AND SDDIUS.[object_id] = MDDIUS.[object_id]
+                                     �
+�                                     
+    AND SDDIUS.[index_id] = MDDIUS.[index_id]
+        END
+    ELSE
+        BEGIN
+       --Service restart date < last poll date
+            PRINT 'Lastest service restart occurred on '
+                + CAST(@last_service_start_date AS
+VARCHAR(50))
+                + ' which is after the latest persist date
+of '
+                + CAST(@last_data_persist_date AS
+VARCHAR(50))
+
+            UPDATE  MDDIUS
+            SET     MDDIUS.[user_seeks] =
+MDDIUS.[user_seeks]
+                    + SDDIUS.[user_seeks],
+                    MDDIUS.[user_scans] =
+MDDIUS.[user_scans]
+                    + SDDIUS.[user_scans],
+                    MDDIUS.[user_lookups] =
+MDDIUS.[user_lookups]
+                    + SDDIUS.[user_lookups],
+                    MDDIUS.[user_updates] =
+MDDIUS.[user_updates]
+                    + SDDIUS.[user_updates],
+                    MDDIUS.[last_user_seek] =
+SDDIUS.[last_user_seek],
+                    MDDIUS.[last_user_scan] =
+SDDIUS.[last_user_scan],
+                    MDDIUS.[last_user_lookup] =
+SDDIUS.[last_user_lookup],
+                    MDDIUS.[last_user_update] =
+SDDIUS.[last_user_update],
+                    MDDIUS.[system_seeks] =
+MDDIUS.[system_seeks]
+                    + SDDIUS.[system_seeks],
+                    MDDIUS.[system_scans] =
+MDDIUS.[system_scans]
+                    + SDDIUS.[system_scans],
+                    MDDIUS.[system_lookups] =
+MDDIUS.[system_lookups]
+                    + SDDIUS.[system_lookups],
+                    MDDIUS.[system_updates] =
+MDDIUS.[system_updates]
+                    + SDDIUS.[system_updates],
+                    MDDIUS.[last_system_seek] =
+SDDIUS.[last_system_seek],
+                    MDDIUS.[last_system_scan] =
+SDDIUS.[last_system_scan],
+                    MDDIUS.[last_system_lookup] =
+SDDIUS.[last_system_lookup],
+                    MDDIUS.[last_system_update] =
+SDDIUS.[last_system_update],
+                    MDDIUS.[last_poll_user_seeks] =
+SDDIUS.[user_seeks],
+                    MDDIUS.[last_poll_user_scans] =
+SDDIUS.[user_scans],
+                    MDDIUS.[last_poll_user_lookups] =
+SDDIUS.[user_lookups],
+                    MDDIUS.[last_poll_user_updates] =
+SDDIUS.[user_updates],
+                    MDDIUS.[last_poll_system_seeks] =
+SDDIUS.[system_seeks],
+                    MDDIUS.[last_poll_system_scans] =
+SDDIUS.[system_scans],
+                    MDDIUS.[last_poll_system_lookups]
+= SDDIUS.[system_lookups],
+                    MDDIUS.[last_poll_system_updates]
+= SDDIUS.[system_updates],
+                    MDDIUS.date_stamp = GETDATE()
+            FROM    [sys].[dm_db_index_usage_stats] SDDIUS
+                    INNER JOIN
+[DBA].[dbo].[dm_db_index_usage_stats] MDDIUS ON SDDIUS.[database_id] =
+MDDIUS.[database_id]
+                                     �
+�                                     
+    AND SDDIUS.[object_id] = MDDIUS.[object_id]
+                                     �
+�                                     
+    AND SDDIUS.[index_id] = MDDIUS.[index_id]
+        END
+
+  --Take care of new records next
+    INSERT  INTO [DBA].[dbo].[dm_db_index_usage_stats]
+            (
+              [database_id],
+              [object_id],
+              [index_id],
+              [user_seeks],
+              [user_scans],
+              [user_lookups],
+              [user_updates],
+              [last_user_seek],
+              [last_user_scan],
+              [last_user_lookup],
+              [last_user_update],
+              [system_seeks],
+              [system_scans],
+              [system_lookups],
+              [system_updates],
+              [last_system_seek],
+              [last_system_scan],
+              [last_system_lookup],
+              [last_system_update],
+              [last_poll_user_seeks],
+              [last_poll_user_scans],
+              [last_poll_user_lookups],
+              [last_poll_user_updates],
+              [last_poll_system_seeks],
+              [last_poll_system_scans],
+              [last_poll_system_lookups],
+              [last_poll_system_updates],
+              [date_stamp]
+            )
+            SELECT  SDDIUS.[database_id],
+                    SDDIUS.[object_id],
+                    SDDIUS.[index_id],
+                    SDDIUS.[user_seeks],
+                    SDDIUS.[user_scans],
+                    SDDIUS.[user_lookups],
+                    SDDIUS.[user_updates],
+                    SDDIUS.[last_user_seek],
+                    SDDIUS.[last_user_scan],
+                    SDDIUS.[last_user_lookup],
+                    SDDIUS.[last_user_update],
+                    SDDIUS.[system_seeks],
+                    SDDIUS.[system_scans],
+                    SDDIUS.[system_lookups],
+                    SDDIUS.[system_updates],
+                    SDDIUS.[last_system_seek],
+                    SDDIUS.[last_system_scan],
+                    SDDIUS.[last_system_lookup],
+                    SDDIUS.[last_system_update],
+                    SDDIUS.[user_seeks],
+                    SDDIUS.[user_scans],
+                    SDDIUS.[user_lookups],
+                    SDDIUS.[user_updates],
+                    SDDIUS.[system_seeks],
+                    SDDIUS.[system_scans],
+                    SDDIUS.[system_lookups],
+                    SDDIUS.[system_updates],
+                    GETDATE()
+            FROM    [sys].[dm_db_index_usage_stats] SDDIUS
+                    LEFT JOIN
+[DBA].[dbo].[dm_db_index_usage_stats] MDDIUS ON SDDIUS.[database_id] =
+MDDIUS.[database_id]
+                                     �
+�                                     
+   AND SDDIUS.[object_id] = MDDIUS.[object_id]
+                                     �
+�                                     
+   AND SDDIUS.[index_id] = MDDIUS.[index_id]
+            WHERE   MDDIUS.[database_id] IS NULL
+                    AND MDDIUS.[object_id] IS NULL
+                    AND MDDIUS.[index_id] IS NULL
+
+GO
+
+
+CREATE TABLE [dbo].[dm_db_index_operational_stats]
+    (
+      [database_id] [smallint] NOT NULL,
+      [object_id] [int] NOT NULL,
+      [index_id] [int] NOT NULL,
+      [partition_number] [int] NOT NULL,
+      [leaf_insert_count] [bigint] NOT NULL,
+      [leaf_delete_count] [bigint] NOT NULL,
+      [leaf_update_count] [bigint] NOT NULL,
+      [leaf_ghost_count] [bigint] NOT NULL,
+      [nonleaf_insert_count] [bigint] NOT NULL,
+      [nonleaf_delete_count] [bigint] NOT NULL,
+      [nonleaf_update_count] [bigint] NOT NULL,
+      [leaf_allocation_count] [bigint] NOT NULL,
+      [nonleaf_allocation_count] [bigint] NOT NULL,
+      [leaf_page_merge_count] [bigint] NOT NULL,
+      [nonleaf_page_merge_count] [bigint] NOT NULL,
+      [range_scan_count] [bigint] NOT NULL,
+      [singleton_lookup_count] [bigint] NOT NULL,
+      [forwarded_fetch_count] [bigint] NOT NULL,
+      [lob_fetch_in_pages] [bigint] NOT NULL,
+      [lob_fetch_in_bytes] [bigint] NOT NULL,
+      [lob_orphan_create_count] [bigint] NOT NULL,
+      [lob_orphan_insert_count] [bigint] NOT NULL,
+      [row_overflow_fetch_in_pages] [bigint] NOT NULL,
+      [row_overflow_fetch_in_bytes] [bigint] NOT NULL,
+      [column_value_push_off_row_count] [bigint] NOT NULL,
+      [column_value_pull_in_row_count] [bigint] NOT NULL,
+      [row_lock_count] [bigint] NOT NULL,
+      [row_lock_wait_count] [bigint] NOT NULL,
+      [row_lock_wait_in_ms] [bigint] NOT NULL,
+      [page_lock_count] [bigint] NOT NULL,
+      [page_lock_wait_count] [bigint] NOT NULL,
+      [page_lock_wait_in_ms] [bigint] NOT NULL,
+      [index_lock_promotion_attempt_count] [bigint] NOT NULL,
+      [index_lock_promotion_count] [bigint] NOT NULL,
+      [page_latch_wait_count] [bigint] NOT NULL,
+      [page_latch_wait_in_ms] [bigint] NOT NULL,
+      [page_io_latch_wait_count] [bigint] NOT NULL,
+      [page_io_latch_wait_in_ms] [bigint] NOT NULL,
+      [last_poll_leaf_insert_count] [bigint] NOT NULL,
+      [last_poll_leaf_delete_count] [bigint] NOT NULL,
+      [last_poll_leaf_update_count] [bigint] NOT NULL,
+      [last_poll_leaf_ghost_count] [bigint] NOT NULL,
+      [last_poll_nonleaf_insert_count] [bigint] NOT NULL,
+      [last_poll_nonleaf_delete_count] [bigint] NOT NULL,
+      [last_poll_nonleaf_update_count] [bigint] NOT NULL,
+      [last_poll_leaf_allocation_count] [bigint] NOT NULL,
+      [last_poll_nonleaf_allocation_count] [bigint] NOT NULL,
+      [last_poll_leaf_page_merge_count] [bigint] NOT NULL,
+      [last_poll_nonleaf_page_merge_count] [bigint] NOT NULL,
+      [last_poll_range_scan_count] [bigint] NOT NULL,
+      [last_poll_singleton_lookup_count] [bigint] NOT NULL,
+      [last_poll_forwarded_fetch_count] [bigint] NOT NULL,
+      [last_poll_lob_fetch_in_pages] [bigint] NOT NULL,
+      [last_poll_lob_fetch_in_bytes] [bigint] NOT NULL,
+      [last_poll_lob_orphan_create_count] [bigint] NOT NULL,
+      [last_poll_lob_orphan_insert_count] [bigint] NOT NULL,
+      [last_poll_row_overflow_fetch_in_pages] [bigint] NOT NULL,
+      [last_poll_row_overflow_fetch_in_bytes] [bigint] NOT NULL,
+      [last_poll_column_value_push_off_row_count] [bigint] NOT NULL,
+      [last_poll_column_value_pull_in_row_count] [bigint] NOT NULL,
+      [last_poll_row_lock_count] [bigint] NOT NULL,
+      [last_poll_row_lock_wait_count] [bigint] NOT NULL,
+      [last_poll_row_lock_wait_in_ms] [bigint] NOT NULL,
+      [last_poll_page_lock_count] [bigint] NOT NULL,
+      [last_poll_page_lock_wait_count] [bigint] NOT NULL,
+      [last_poll_page_lock_wait_in_ms] [bigint] NOT NULL,
+      [last_poll_index_lock_promotion_attempt_count] [bigint] NOT
+NULL,
+      [last_poll_index_lock_promotion_count] [bigint] NOT NULL,
+      [last_poll_page_latch_wait_count] [bigint] NOT NULL,
+      [last_poll_page_latch_wait_in_ms] [bigint] NOT NULL,
+      [last_poll_page_io_latch_wait_count] [bigint] NOT NULL,
+      [last_poll_page_io_latch_wait_in_ms] [bigint] NOT NULL,
+      [date_stamp] [datetime] NOT NULL
+      CONSTRAINT [PK_dm_db_index_operational_stats] PRIMARY KEY
+CLUSTERED ( [database_id] ASC, [object_id] ASC, [index_id] ASC,
+[partition_number] ASC )
+        WITH ( PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF,
+               IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON,
+               ALLOW_PAGE_LOCKS = ON ) ON [PRIMARY]
+    )
+ON  [PRIMARY]
+
+go
+
+CREATE PROCEDURE dbo.usp_persist_dm_db_index_operational_stats
+AS
+    DECLARE @last_service_start_date DATETIME
+    DECLARE @last_data_persist_date DATETIME
+
+--Determine last service restart date based upon tempdb creation date
+    SELECT  @last_service_start_date = SD.[create_date]
+    FROM    sys.databases SD
+    WHERE   SD.[name] = 'tempdb'
+ 
+--Return the value for the last refresh date of the persisting table
+    SELECT  @last_data_persist_date = MAX(MDDIOS.[date_stamp])
+    FROM    [DBA].[dbo].[dm_db_index_operational_stats] MDDIOS
+
+--Take care of updated records first
+    IF @last_service_start_date < @last_data_persist_date
+        BEGIN
+   --Service restart date > last poll date
+            PRINT 'The latest persist date was '
+                + CAST(@last_data_persist_date AS
+VARCHAR(50))
+                + '; no restarts occurred since '
+                + CAST(@last_service_start_date AS
+VARCHAR(50)) + '  ('
+                + CAST(DATEDIFF(d,
+@last_service_start_date,
+                               
+@last_data_persist_date) AS VARCHAR(10))
+                + ' days ago.)'
+
+            UPDATE  MDDIOS
+            SET     MDDIOS.[leaf_insert_count] =
+MDDIOS.[leaf_insert_count]
+                    + ( SDDIOS.[leaf_insert_count]
+                        -
+MDDIOS.[last_poll_leaf_insert_count] ),
+                    MDDIOS.[leaf_delete_count] =
+MDDIOS.[leaf_delete_count]
+                    + ( SDDIOS.[leaf_delete_count]
+                        -
+MDDIOS.[last_poll_leaf_delete_count] ),
+                    MDDIOS.[leaf_update_count] =
+MDDIOS.[leaf_update_count]
+                    + ( SDDIOS.[leaf_update_count]
+                        -
+MDDIOS.[last_poll_leaf_update_count] ),
+                    MDDIOS.[leaf_ghost_count] =
+MDDIOS.[leaf_ghost_count]
+                    + ( SDDIOS.[leaf_ghost_count]
+                        -
+MDDIOS.[last_poll_leaf_ghost_count] ),
+                    MDDIOS.[nonleaf_insert_count] =
+MDDIOS.[nonleaf_insert_count]
+                    + ( SDDIOS.[nonleaf_insert_count]
+                        -
+MDDIOS.[last_poll_nonleaf_insert_count] ),
+                    MDDIOS.[nonleaf_delete_count] =
+MDDIOS.[nonleaf_delete_count]
+                    + ( SDDIOS.[nonleaf_delete_count]
+                        -
+MDDIOS.[last_poll_nonleaf_delete_count] ),
+                    MDDIOS.[nonleaf_update_count] =
+MDDIOS.[nonleaf_update_count]
+                    + ( SDDIOS.[nonleaf_update_count]
+                        -
+MDDIOS.[last_poll_nonleaf_update_count] ),
+                    MDDIOS.[leaf_allocation_count] =
+MDDIOS.[leaf_allocation_count]
+                    + ( SDDIOS.[leaf_allocation_count]
+                        -
+MDDIOS.[last_poll_leaf_allocation_count] ),
+                    MDDIOS.[nonleaf_allocation_count]
+= MDDIOS.[nonleaf_allocation_count]
+                    + (
+SDDIOS.[nonleaf_allocation_count]
+                        -
+MDDIOS.[last_poll_nonleaf_allocation_count] ),
+                    MDDIOS.[leaf_page_merge_count] =
+MDDIOS.[leaf_page_merge_count]
+                    + ( SDDIOS.[leaf_page_merge_count]
+                        -
+MDDIOS.[last_poll_leaf_page_merge_count] ),
+                    MDDIOS.[nonleaf_page_merge_count]
+= MDDIOS.[nonleaf_page_merge_count]
+                    + (
+SDDIOS.[nonleaf_page_merge_count]
+                        -
+MDDIOS.[last_poll_nonleaf_page_merge_count] ),
+                    MDDIOS.[range_scan_count] =
+MDDIOS.[range_scan_count]
+                    + ( SDDIOS.[range_scan_count]
+                        -
+MDDIOS.[last_poll_range_scan_count] ),
+                    MDDIOS.[singleton_lookup_count] =
+MDDIOS.[singleton_lookup_count]
+                    + ( SDDIOS.[singleton_lookup_count]
+                        -
+MDDIOS.[last_poll_singleton_lookup_count] ),
+                    MDDIOS.[forwarded_fetch_count] =
+MDDIOS.[forwarded_fetch_count]
+                    + ( SDDIOS.[forwarded_fetch_count]
+                        -
+MDDIOS.[last_poll_forwarded_fetch_count] ),
+                    MDDIOS.[lob_fetch_in_pages] =
+MDDIOS.[lob_fetch_in_pages]
+                    + ( SDDIOS.[lob_fetch_in_pages]
+                        -
+MDDIOS.[last_poll_lob_fetch_in_pages] ),
+                    MDDIOS.[lob_fetch_in_bytes] =
+MDDIOS.[lob_fetch_in_bytes]
+                    + ( SDDIOS.[lob_fetch_in_bytes]
+                        -
+MDDIOS.[last_poll_lob_fetch_in_bytes] ),
+                    MDDIOS.[lob_orphan_create_count] =
+MDDIOS.[lob_orphan_create_count]
+                    + (
+SDDIOS.[lob_orphan_create_count]
+                        -
+MDDIOS.[last_poll_lob_orphan_create_count] ),
+                    MDDIOS.[lob_orphan_insert_count] =
+MDDIOS.[lob_orphan_insert_count]
+                    + (
+SDDIOS.[lob_orphan_insert_count]
+                        -
+MDDIOS.[last_poll_lob_orphan_insert_count] ),
+                   
+MDDIOS.[row_overflow_fetch_in_pages] =
+MDDIOS.[row_overflow_fetch_in_pages]
+                    + (
+SDDIOS.[row_overflow_fetch_in_pages]
+                        -
+MDDIOS.[last_poll_row_overflow_fetch_in_pages] ),
+                   
+MDDIOS.[row_overflow_fetch_in_bytes] =
+MDDIOS.[row_overflow_fetch_in_bytes]
+                    + (
+SDDIOS.[row_overflow_fetch_in_bytes]
+                        -
+MDDIOS.[last_poll_row_overflow_fetch_in_bytes] ),
+                   
+MDDIOS.[column_value_push_off_row_count] =
+MDDIOS.[column_value_push_off_row_count]
+                    + (
+SDDIOS.[column_value_push_off_row_count]
+                        -
+MDDIOS.[last_poll_column_value_push_off_row_count] ),
+                   
+MDDIOS.[column_value_pull_in_row_count] =
+MDDIOS.[column_value_pull_in_row_count]
+                    + (
+SDDIOS.[column_value_pull_in_row_count]
+                        -
+MDDIOS.[last_poll_column_value_pull_in_row_count] ),
+                    MDDIOS.[row_lock_count] =
+MDDIOS.[row_lock_count]
+                    + ( SDDIOS.[row_lock_count]
+                        -
+MDDIOS.[last_poll_row_lock_count] ),
+                    MDDIOS.[row_lock_wait_count] =
+MDDIOS.[row_lock_wait_count]
+                    + ( SDDIOS.[row_lock_wait_count]
+                        -
+MDDIOS.[last_poll_row_lock_wait_count] ),
+                    MDDIOS.[row_lock_wait_in_ms] =
+MDDIOS.[row_lock_wait_in_ms]
+                    + ( SDDIOS.[row_lock_wait_in_ms]
+                        -
+MDDIOS.[last_poll_row_lock_wait_in_ms] ),
+                    MDDIOS.[page_lock_count] =
+MDDIOS.[page_lock_count]
+                    + ( SDDIOS.[page_lock_count]
+                        -
+MDDIOS.[last_poll_page_lock_count] ),
+                    MDDIOS.[page_lock_wait_count] =
+MDDIOS.[page_lock_wait_count]
+                    + ( SDDIOS.[page_lock_wait_count]
+                        -
+MDDIOS.[last_poll_page_lock_wait_count] ),
+                    MDDIOS.[page_lock_wait_in_ms] =
+MDDIOS.[page_lock_wait_in_ms]
+                    + ( SDDIOS.[page_lock_wait_in_ms]
+                        -
+MDDIOS.[last_poll_page_lock_wait_in_ms] ),
+                   
+MDDIOS.[index_lock_promotion_attempt_count] =
+MDDIOS.[index_lock_promotion_attempt_count]
+                    + (
+SDDIOS.[index_lock_promotion_attempt_count]
+                        -
+MDDIOS.[last_poll_index_lock_promotion_attempt_count] ),
+                   
+MDDIOS.[index_lock_promotion_count] = MDDIOS.[index_lock_promotion_count]
+                    + (
+SDDIOS.[index_lock_promotion_count]
+                        -
+MDDIOS.[last_poll_index_lock_promotion_count] ),
+                    MDDIOS.[page_latch_wait_count] =
+MDDIOS.[page_latch_wait_count]
+                    + ( SDDIOS.[page_latch_wait_count]
+                        -
+MDDIOS.[last_poll_page_latch_wait_count] ),
+                    MDDIOS.[page_latch_wait_in_ms] =
+MDDIOS.[page_latch_wait_in_ms]
+                    + ( SDDIOS.[page_latch_wait_in_ms]
+                        -
+MDDIOS.[last_poll_page_latch_wait_in_ms] ),
+                    MDDIOS.[page_io_latch_wait_count]
+= MDDIOS.[page_io_latch_wait_count]
+                    + (
+SDDIOS.[page_io_latch_wait_count]
+                        -
+MDDIOS.[last_poll_page_io_latch_wait_count] ),
+                    MDDIOS.[page_io_latch_wait_in_ms]
+= MDDIOS.[page_io_latch_wait_in_ms]
+                    + (
+SDDIOS.[page_io_latch_wait_in_ms]
+                        -
+MDDIOS.[last_poll_page_io_latch_wait_in_ms] ),
+                   
+MDDIOS.[last_poll_leaf_insert_count] = SDDIOS.[leaf_insert_count],
+                   
+MDDIOS.[last_poll_leaf_delete_count] = SDDIOS.[leaf_delete_count],
+                   
+MDDIOS.[last_poll_leaf_update_count] = SDDIOS.[leaf_update_count],
+                   
+MDDIOS.[last_poll_leaf_ghost_count] = SDDIOS.[leaf_ghost_count],
+                   
+MDDIOS.[last_poll_nonleaf_insert_count] = SDDIOS.[nonleaf_insert_count],
+                   
+MDDIOS.[last_poll_nonleaf_delete_count] = SDDIOS.[nonleaf_delete_count],
+                   
+MDDIOS.[last_poll_nonleaf_update_count] = SDDIOS.[nonleaf_update_count],
+                   
+MDDIOS.[last_poll_leaf_allocation_count] = SDDIOS.[leaf_allocation_count],
+                   
+MDDIOS.[last_poll_nonleaf_allocation_count] =
+SDDIOS.[nonleaf_allocation_count],
+                   
+MDDIOS.[last_poll_leaf_page_merge_count] = SDDIOS.[leaf_page_merge_count],
+                   
+MDDIOS.[last_poll_nonleaf_page_merge_count] =
+SDDIOS.[nonleaf_page_merge_count],
+                   
+MDDIOS.[last_poll_range_scan_count] = SDDIOS.[range_scan_count],
+                   
+MDDIOS.[last_poll_singleton_lookup_count] =
+SDDIOS.[singleton_lookup_count],
+                   
+MDDIOS.[last_poll_forwarded_fetch_count] = SDDIOS.[forwarded_fetch_count],
+                   
+MDDIOS.[last_poll_lob_fetch_in_pages] = SDDIOS.[lob_fetch_in_pages],
+                   
+MDDIOS.[last_poll_lob_fetch_in_bytes] = SDDIOS.[lob_fetch_in_bytes],
+                   
+MDDIOS.[last_poll_lob_orphan_create_count] =
+SDDIOS.[lob_orphan_create_count],
+                   
+MDDIOS.[last_poll_lob_orphan_insert_count] =
+SDDIOS.[lob_orphan_insert_count],
+                   
+MDDIOS.[last_poll_row_overflow_fetch_in_pages] =
+SDDIOS.[row_overflow_fetch_in_pages],
+                   
+MDDIOS.[last_poll_row_overflow_fetch_in_bytes] =
+SDDIOS.[row_overflow_fetch_in_bytes],
+                   
+MDDIOS.[last_poll_column_value_push_off_row_count] =
+SDDIOS.[column_value_push_off_row_count],
+                   
+MDDIOS.[last_poll_column_value_pull_in_row_count] =
+SDDIOS.[column_value_pull_in_row_count],
+                    MDDIOS.[last_poll_row_lock_count]
+= SDDIOS.[row_lock_count],
+                   
+MDDIOS.[last_poll_row_lock_wait_count] = SDDIOS.[row_lock_wait_count],
+                   
+MDDIOS.[last_poll_row_lock_wait_in_ms] = SDDIOS.[row_lock_wait_in_ms],
+                    MDDIOS.[last_poll_page_lock_count]
+= SDDIOS.[page_lock_count],
+                   
+MDDIOS.[last_poll_page_lock_wait_count] = SDDIOS.[page_lock_wait_count],
+                   
+MDDIOS.[last_poll_page_lock_wait_in_ms] = SDDIOS.[page_lock_wait_in_ms],
+                   
+MDDIOS.[last_poll_index_lock_promotion_attempt_count] =
+SDDIOS.[index_lock_promotion_attempt_count],
+                   
+MDDIOS.[last_poll_index_lock_promotion_count] =
+SDDIOS.[index_lock_promotion_count],
+                   
+MDDIOS.[last_poll_page_latch_wait_count] = SDDIOS.[page_latch_wait_count],
+                   
+MDDIOS.[last_poll_page_latch_wait_in_ms] = SDDIOS.[page_latch_wait_in_ms],
+                   
+MDDIOS.[last_poll_page_io_latch_wait_count] =
+SDDIOS.[page_io_latch_wait_count],
+                   
+MDDIOS.[last_poll_page_io_latch_wait_in_ms] =
+SDDIOS.[page_io_latch_wait_in_ms],
+                    MDDIOS.date_stamp = GETDATE()
+            FROM   
+[sys].[dm_db_index_operational_stats](NULL, NULL, NULL,
+                                     �
+�                    NULL) SDDIOS
+                    INNER JOIN
+[DBA].[dbo].[dm_db_index_operational_stats] MDDIOS ON
+SDDIOS.[database_id] = MDDIOS.[database_id]
+                                     �
+�                                     
+          AND SDDIOS.[object_id] = MDDIOS.[object_id]
+                                     �
+�                                     
+          AND SDDIOS.[index_id] = MDDIOS.[index_id]
+                                     �
+�                                     
+          AND SDDIOS.[partition_number] =
+MDDIOS.[partition_number]
+        END
+    ELSE
+        BEGIN
+   --Service restart date < last poll date
+            PRINT 'Lastest service restart occurred on '
+                + CAST(@last_service_start_date AS
+VARCHAR(50))
+                + ' which is after the latest persist date
+of '
+                + CAST(@last_data_persist_date AS
+VARCHAR(50))
+   
+            UPDATE  MDDIOS
+            SET     MDDIOS.[leaf_insert_count] =
+MDDIOS.[leaf_insert_count]
+                    + SDDIOS.[leaf_insert_count],
+                    MDDIOS.[leaf_delete_count] =
+MDDIOS.[leaf_delete_count]
+                    + SDDIOS.[leaf_delete_count],
+                    MDDIOS.[leaf_update_count] =
+MDDIOS.[leaf_update_count]
+                    + SDDIOS.[leaf_update_count],
+                    MDDIOS.[leaf_ghost_count] =
+MDDIOS.[leaf_ghost_count]
+                    + SDDIOS.[leaf_ghost_count],
+                    MDDIOS.[nonleaf_insert_count] =
+MDDIOS.[nonleaf_insert_count]
+                    + SDDIOS.[nonleaf_insert_count],
+                    MDDIOS.[nonleaf_delete_count] =
+MDDIOS.[nonleaf_delete_count]
+                    + SDDIOS.[nonleaf_delete_count],
+                    MDDIOS.[nonleaf_update_count] =
+MDDIOS.[nonleaf_update_count]
+                    + SDDIOS.[nonleaf_update_count],
+                    MDDIOS.[leaf_allocation_count] =
+MDDIOS.[leaf_allocation_count]
+                    + SDDIOS.[leaf_allocation_count],
+                    MDDIOS.[nonleaf_allocation_count]
+= MDDIOS.[nonleaf_allocation_count]
+                    +
+SDDIOS.[nonleaf_allocation_count],
+                    MDDIOS.[leaf_page_merge_count] =
+MDDIOS.[leaf_page_merge_count]
+                    + SDDIOS.[leaf_page_merge_count],
+                    MDDIOS.[nonleaf_page_merge_count]
+= MDDIOS.[nonleaf_page_merge_count]
+                    +
+SDDIOS.[nonleaf_page_merge_count],
+                    MDDIOS.[range_scan_count] =
+MDDIOS.[range_scan_count]
+                    + SDDIOS.[range_scan_count],
+                    MDDIOS.[singleton_lookup_count] =
+MDDIOS.[singleton_lookup_count]
+                    + SDDIOS.[singleton_lookup_count],
+                    MDDIOS.[forwarded_fetch_count] =
+MDDIOS.[forwarded_fetch_count]
+                    + SDDIOS.[forwarded_fetch_count],
+                    MDDIOS.[lob_fetch_in_pages] =
+MDDIOS.[lob_fetch_in_pages]
+                    + SDDIOS.[lob_fetch_in_pages],
+                    MDDIOS.[lob_fetch_in_bytes] =
+MDDIOS.[lob_fetch_in_bytes]
+                    + SDDIOS.[lob_fetch_in_bytes],
+                    MDDIOS.[lob_orphan_create_count] =
+MDDIOS.[lob_orphan_create_count]
+                    + SDDIOS.[lob_orphan_create_count],
+                    MDDIOS.[lob_orphan_insert_count] =
+MDDIOS.[lob_orphan_insert_count]
+                    + SDDIOS.[lob_orphan_insert_count],
+                   
+MDDIOS.[row_overflow_fetch_in_pages] =
+MDDIOS.[row_overflow_fetch_in_pages]
+                    +
+SDDIOS.[row_overflow_fetch_in_pages],
+                   
+MDDIOS.[row_overflow_fetch_in_bytes] =
+MDDIOS.[row_overflow_fetch_in_bytes]
+                    +
+SDDIOS.[row_overflow_fetch_in_bytes],
+                   
+MDDIOS.[column_value_push_off_row_count] =
+MDDIOS.[column_value_push_off_row_count]
+                    +
+SDDIOS.[column_value_push_off_row_count],
+                   
+MDDIOS.[column_value_pull_in_row_count] =
+MDDIOS.[column_value_pull_in_row_count]
+                    +
+SDDIOS.[column_value_pull_in_row_count],
+                    MDDIOS.[row_lock_count] =
+MDDIOS.[row_lock_count]
+                    + SDDIOS.[row_lock_count],
+                    MDDIOS.[row_lock_wait_count] =
+MDDIOS.[row_lock_wait_count]
+                    + SDDIOS.[row_lock_wait_count],
+                    MDDIOS.[row_lock_wait_in_ms] =
+MDDIOS.[row_lock_wait_in_ms]
+                    + SDDIOS.[row_lock_wait_in_ms],
+                    MDDIOS.[page_lock_count] =
+MDDIOS.[page_lock_count]
+                    + SDDIOS.[page_lock_count],
+                    MDDIOS.[page_lock_wait_count] =
+MDDIOS.[page_lock_wait_count]
+                    + SDDIOS.[page_lock_wait_count],
+                    MDDIOS.[page_lock_wait_in_ms] =
+MDDIOS.[page_lock_wait_in_ms]
+                    + SDDIOS.[page_lock_wait_in_ms],
+                   
+MDDIOS.[index_lock_promotion_attempt_count] =
+MDDIOS.[index_lock_promotion_attempt_count]
+                    +
+SDDIOS.[index_lock_promotion_attempt_count],
+                   
+MDDIOS.[index_lock_promotion_count] = MDDIOS.[index_lock_promotion_count]
+                    +
+SDDIOS.[index_lock_promotion_count],
+                    MDDIOS.[page_latch_wait_count] =
+MDDIOS.[page_latch_wait_count]
+                    + SDDIOS.[page_latch_wait_count],
+                    MDDIOS.[page_latch_wait_in_ms] =
+MDDIOS.[page_latch_wait_in_ms]
+                    + SDDIOS.[page_latch_wait_in_ms],
+                    MDDIOS.[page_io_latch_wait_count]
+= MDDIOS.[page_io_latch_wait_count]
+                    +
+SDDIOS.[page_io_latch_wait_count],
+                    MDDIOS.[page_io_latch_wait_in_ms]
+= MDDIOS.[page_io_latch_wait_in_ms]
+                    +
+SDDIOS.[page_io_latch_wait_in_ms],
+                   
+MDDIOS.[last_poll_leaf_insert_count] = SDDIOS.[leaf_insert_count],
+                   
+MDDIOS.[last_poll_leaf_delete_count] = SDDIOS.[leaf_delete_count],
+                   
+MDDIOS.[last_poll_leaf_update_count] = SDDIOS.[leaf_update_count],
+                   
+MDDIOS.[last_poll_leaf_ghost_count] = SDDIOS.[leaf_ghost_count],
+                   
+MDDIOS.[last_poll_nonleaf_insert_count] = SDDIOS.[nonleaf_insert_count],
+                   
+MDDIOS.[last_poll_nonleaf_delete_count] = SDDIOS.[nonleaf_delete_count],
+                   
+MDDIOS.[last_poll_nonleaf_update_count] = SDDIOS.[nonleaf_update_count],
+                   
+MDDIOS.[last_poll_leaf_allocation_count] = SDDIOS.[leaf_allocation_count],
+                   
+MDDIOS.[last_poll_nonleaf_allocation_count] =
+SDDIOS.[nonleaf_allocation_count],
+                   
+MDDIOS.[last_poll_leaf_page_merge_count] = SDDIOS.[leaf_page_merge_count],
+                   
+MDDIOS.[last_poll_nonleaf_page_merge_count] =
+SDDIOS.[nonleaf_page_merge_count],
+                   
+MDDIOS.[last_poll_range_scan_count] = SDDIOS.[range_scan_count],
+                   
+MDDIOS.[last_poll_singleton_lookup_count] =
+SDDIOS.[singleton_lookup_count],
+                   
+MDDIOS.[last_poll_forwarded_fetch_count] = SDDIOS.[forwarded_fetch_count],
+                   
+MDDIOS.[last_poll_lob_fetch_in_pages] = SDDIOS.[lob_fetch_in_pages],
+                   
+MDDIOS.[last_poll_lob_fetch_in_bytes] = SDDIOS.[lob_fetch_in_bytes],
+                   
+MDDIOS.[last_poll_lob_orphan_create_count] =
+SDDIOS.[lob_orphan_create_count],
+                   
+MDDIOS.[last_poll_lob_orphan_insert_count] =
+SDDIOS.[lob_orphan_insert_count],
+                   
+MDDIOS.[last_poll_row_overflow_fetch_in_pages] =
+SDDIOS.[row_overflow_fetch_in_pages],
+                   
+MDDIOS.[last_poll_row_overflow_fetch_in_bytes] =
+SDDIOS.[row_overflow_fetch_in_bytes],
+                   
+MDDIOS.[last_poll_column_value_push_off_row_count] =
+SDDIOS.[column_value_push_off_row_count],
+                   
+MDDIOS.[last_poll_column_value_pull_in_row_count] =
+SDDIOS.[column_value_pull_in_row_count],
+                    MDDIOS.[last_poll_row_lock_count]
+= SDDIOS.[row_lock_count],
+                   
+MDDIOS.[last_poll_row_lock_wait_count] = SDDIOS.[row_lock_wait_count],
+                   
+MDDIOS.[last_poll_row_lock_wait_in_ms] = SDDIOS.[row_lock_wait_in_ms],
+                    MDDIOS.[last_poll_page_lock_count]
+= SDDIOS.[page_lock_count],
+                   
+MDDIOS.[last_poll_page_lock_wait_count] = SDDIOS.[page_lock_wait_count],
+                   
+MDDIOS.[last_poll_page_lock_wait_in_ms] = SDDIOS.[page_lock_wait_in_ms],
+                   
+MDDIOS.[last_poll_index_lock_promotion_attempt_count] =
+SDDIOS.[index_lock_promotion_attempt_count],
+                   
+MDDIOS.[last_poll_index_lock_promotion_count] =
+SDDIOS.[index_lock_promotion_count],
+                   
+MDDIOS.[last_poll_page_latch_wait_count] = SDDIOS.[page_latch_wait_count],
+                   
+MDDIOS.[last_poll_page_latch_wait_in_ms] = SDDIOS.[page_latch_wait_in_ms],
+                   
+MDDIOS.[last_poll_page_io_latch_wait_count] =
+SDDIOS.[page_io_latch_wait_count],
+                   
+MDDIOS.[last_poll_page_io_latch_wait_in_ms] =
+SDDIOS.[page_io_latch_wait_in_ms],
+                    MDDIOS.date_stamp = GETDATE()
+            FROM   
+[sys].[dm_db_index_operational_stats](NULL, NULL, NULL,
+                                     �
+�                    NULL) SDDIOS
+                    INNER JOIN
+[DBA].[dbo].[dm_db_index_operational_stats] MDDIOS ON
+SDDIOS.[database_id] = MDDIOS.[database_id]
+                                     �
+�                                     
+          AND SDDIOS.[object_id] = MDDIOS.[object_id]
+                                     �
+�                                     
+          AND SDDIOS.[index_id] = MDDIOS.[index_id]
+                                     �
+�                                     
+          AND SDDIOS.[partition_number] =
+MDDIOS.[partition_number]
+        END
+
+--Take care of new records next
+    INSERT  INTO [DBA].[dbo].[dm_db_index_operational_stats]
+            (
+              [database_id],
+              [object_id],
+              [index_id],
+              [partition_number],
+              [leaf_insert_count],
+              [leaf_delete_count],
+              [leaf_update_count],
+              [leaf_ghost_count],
+              [nonleaf_insert_count],
+              [nonleaf_delete_count],
+              [nonleaf_update_count],
+              [leaf_allocation_count],
+              [nonleaf_allocation_count],
+              [leaf_page_merge_count],
+              [nonleaf_page_merge_count],
+              [range_scan_count],
+              [singleton_lookup_count],
+              [forwarded_fetch_count],
+              [lob_fetch_in_pages],
+              [lob_fetch_in_bytes],
+              [lob_orphan_create_count],
+              [lob_orphan_insert_count],
+              [row_overflow_fetch_in_pages],
+              [row_overflow_fetch_in_bytes],
+              [column_value_push_off_row_count],
+              [column_value_pull_in_row_count],
+              [row_lock_count],
+              [row_lock_wait_count],
+              [row_lock_wait_in_ms],
+              [page_lock_count],
+              [page_lock_wait_count],
+              [page_lock_wait_in_ms],
+              [index_lock_promotion_attempt_count],
+              [index_lock_promotion_count],
+              [page_latch_wait_count],
+              [page_latch_wait_in_ms],
+              [page_io_latch_wait_count],
+              [page_io_latch_wait_in_ms],
+              [last_poll_leaf_insert_count],
+              [last_poll_leaf_delete_count],
+              [last_poll_leaf_update_count],
+              [last_poll_leaf_ghost_count],
+              [last_poll_nonleaf_insert_count],
+              [last_poll_nonleaf_delete_count],
+              [last_poll_nonleaf_update_count],
+              [last_poll_leaf_allocation_count],
+              [last_poll_nonleaf_allocation_count],
+              [last_poll_leaf_page_merge_count],
+              [last_poll_nonleaf_page_merge_count],
+              [last_poll_range_scan_count],
+              [last_poll_singleton_lookup_count],
+              [last_poll_forwarded_fetch_count],
+              [last_poll_lob_fetch_in_pages],
+              [last_poll_lob_fetch_in_bytes],
+              [last_poll_lob_orphan_create_count],
+              [last_poll_lob_orphan_insert_count],
+              [last_poll_row_overflow_fetch_in_pages],
+              [last_poll_row_overflow_fetch_in_bytes],
+              [last_poll_column_value_push_off_row_count],
+              [last_poll_column_value_pull_in_row_count],
+              [last_poll_row_lock_count],
+              [last_poll_row_lock_wait_count],
+              [last_poll_row_lock_wait_in_ms],
+              [last_poll_page_lock_count],
+              [last_poll_page_lock_wait_count],
+              [last_poll_page_lock_wait_in_ms],
+              [last_poll_index_lock_promotion_attempt_count],
+              [last_poll_index_lock_promotion_count],
+              [last_poll_page_latch_wait_count],
+              [last_poll_page_latch_wait_in_ms],
+              [last_poll_page_io_latch_wait_count],
+              [last_poll_page_io_latch_wait_in_ms],
+              [date_stamp]
+            )
+            SELECT  SDDIOS.[database_id],
+                    SDDIOS.[object_id],
+                    SDDIOS.[index_id],
+                    SDDIOS.[partition_number],
+                    SDDIOS.[leaf_insert_count],
+                    SDDIOS.[leaf_delete_count],
+                    SDDIOS.[leaf_update_count],
+                    SDDIOS.[leaf_ghost_count],
+                    SDDIOS.[nonleaf_insert_count],
+                    SDDIOS.[nonleaf_delete_count],
+                    SDDIOS.[nonleaf_update_count],
+                    SDDIOS.[leaf_allocation_count],
+                    SDDIOS.[nonleaf_allocation_count],
+                    SDDIOS.[leaf_page_merge_count],
+                    SDDIOS.[nonleaf_page_merge_count],
+                    SDDIOS.[range_scan_count],
+                    SDDIOS.[singleton_lookup_count],
+                    SDDIOS.[forwarded_fetch_count],
+                    SDDIOS.[lob_fetch_in_pages],
+                    SDDIOS.[lob_fetch_in_bytes],
+                    SDDIOS.[lob_orphan_create_count],
+                    SDDIOS.[lob_orphan_insert_count],
+                   
+SDDIOS.[row_overflow_fetch_in_pages],
+                   
+SDDIOS.[row_overflow_fetch_in_bytes],
+                   
+SDDIOS.[column_value_push_off_row_count],
+                   
+SDDIOS.[column_value_pull_in_row_count],
+                    SDDIOS.[row_lock_count],
+                    SDDIOS.[row_lock_wait_count],
+                    SDDIOS.[row_lock_wait_in_ms],
+                    SDDIOS.[page_lock_count],
+                    SDDIOS.[page_lock_wait_count],
+                    SDDIOS.[page_lock_wait_in_ms],
+                   
+SDDIOS.[index_lock_promotion_attempt_count],
+                   
+SDDIOS.[index_lock_promotion_count],
+                    SDDIOS.[page_latch_wait_count],
+                    SDDIOS.[page_latch_wait_in_ms],
+                    SDDIOS.[page_io_latch_wait_count],
+                    SDDIOS.[page_io_latch_wait_in_ms],
+                    SDDIOS.[leaf_insert_count],
+                    SDDIOS.[leaf_delete_count],
+                    SDDIOS.[leaf_update_count],
+                    SDDIOS.[leaf_ghost_count],
+                    SDDIOS.[nonleaf_insert_count],
+                    SDDIOS.[nonleaf_delete_count],
+                    SDDIOS.[nonleaf_update_count],
+                    SDDIOS.[leaf_allocation_count],
+                    SDDIOS.[nonleaf_allocation_count],
+                    SDDIOS.[leaf_page_merge_count],
+                    SDDIOS.[nonleaf_page_merge_count],
+                    SDDIOS.[range_scan_count],
+                    SDDIOS.[singleton_lookup_count],
+                    SDDIOS.[forwarded_fetch_count],
+                    SDDIOS.[lob_fetch_in_pages],
+                    SDDIOS.[lob_fetch_in_bytes],
+                    SDDIOS.[lob_orphan_create_count],
+                    SDDIOS.[lob_orphan_insert_count],
+                   
+SDDIOS.[row_overflow_fetch_in_pages],
+                   
+SDDIOS.[row_overflow_fetch_in_bytes],
+                   
+SDDIOS.[column_value_push_off_row_count],
+                   
+SDDIOS.[column_value_pull_in_row_count],
+                    SDDIOS.[row_lock_count],
+                    SDDIOS.[row_lock_wait_count],
+                    SDDIOS.[row_lock_wait_in_ms],
+                    SDDIOS.[page_lock_count],
+                    SDDIOS.[page_lock_wait_count],
+                    SDDIOS.[page_lock_wait_in_ms],
+                   
+SDDIOS.[index_lock_promotion_attempt_count],
+                   
+SDDIOS.[index_lock_promotion_count],
+                    SDDIOS.[page_latch_wait_count],
+                    SDDIOS.[page_latch_wait_in_ms],
+                    SDDIOS.[page_io_latch_wait_count],
+                    SDDIOS.[page_io_latch_wait_in_ms],
+                    GETDATE()
+            FROM   
+sys.[dm_db_index_operational_stats](NULL, NULL, NULL, NULL) SDDIOS
+                    LEFT JOIN
+[DBA].[dbo].[dm_db_index_operational_stats] MDDIOS ON
+SDDIOS.[database_id] = MDDIOS.[database_id]
+                                     �
+�                                     
+         AND SDDIOS.[object_id] = MDDIOS.[object_id]
+                                     �
+�                                     
+         AND SDDIOS.[index_id] = MDDIOS.[index_id]
+                                     �
+�                                     
+         AND SDDIOS.[partition_number] = MDDIOS.[partition_number]
+            WHERE   MDDIOS.[database_id] IS NULL
+                    AND MDDIOS.[object_id] IS NULL
+                    AND MDDIOS.[index_id] IS NULL
+                    AND MDDIOS.[partition_number] IS
+NULL
+
+GO
+
+ 
+
+--Create repository table for sys.dm_db_missing_index_details:
+CREATE TABLE [dbo].[dm_db_missing_index_details]
+    (
+      [index_handle] [int] NOT NULL,
+      [database_id] [smallint] NOT NULL,
+      [object_id] [int] NOT NULL,
+      [equality_columns] [nvarchar](4000) NULL,
+      [inequality_columns] [nvarchar](4000) NULL,
+      [included_columns] [nvarchar](4000) NULL,
+      [statement] [nvarchar](4000) NULL,
+      [date_stamp] [datetime] NOT NULL
+      CONSTRAINT [PK_dm_db_missing_index_details] PRIMARY KEY
+CLUSTERED ( [index_handle] ASC )
+        WITH ( PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF,
+               IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON,
+               ALLOW_PAGE_LOCKS = ON, FILLFACTOR = 90 ) ON
+[PRIMARY]
+    )
+ON  [PRIMARY]
+   
+--Create repository table for sys.dm_db_missing_index_group_stats:
+CREATE TABLE [dbo].[dm_db_missing_index_group_stats]
+    (
+      [group_handle] [int] NOT NULL,
+      [unique_compiles] [bigint] NOT NULL,
+      [user_seeks] [bigint] NOT NULL,
+      [user_scans] [bigint] NOT NULL,
+      [last_user_seek] [datetime] NULL,
+      [last_user_scan] [datetime] NULL,
+      [avg_total_user_cost] [float] NULL,
+      [avg_user_impact] [float] NULL,
+      [system_seeks] [bigint] NOT NULL,
+      [system_scans] [bigint] NOT NULL,
+      [last_system_seek] [datetime] NULL,
+      [last_system_scan] [datetime] NULL,
+      [avg_total_system_cost] [float] NULL,
+      [avg_system_impact] [float] NULL,
+      [last_poll_unique_compiles] [bigint] NULL,
+      [last_poll_user_seeks] [bigint] NULL,
+      [last_poll_user_scans] [bigint] NULL,
+      [last_poll_system_seeks] [bigint] NULL,
+      [last_poll_system_scans] [bigint] NULL,
+      [date_stamp] [datetime] NOT NULL
+      CONSTRAINT [PK_dm_db_missing_index_group_stats] PRIMARY KEY
+CLUSTERED ( [group_handle] ASC )
+        WITH ( PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF,
+               IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON,
+               ALLOW_PAGE_LOCKS = ON, FILLFACTOR = 90 ) ON
+[PRIMARY]
+    )
+ON  [PRIMARY]
+
+--Create repository table for sys.dm_db_missing_index_groups:
+CREATE TABLE [dbo].[dm_db_missing_index_groups]
+    (
+      [index_group_handle] [int] NOT NULL,
+      [index_handle] [int] NOT NULL,
+      [date_stamp] [datetime] NOT NULL
+      CONSTRAINT [PK_dm_db_missing_index_groups] PRIMARY KEY
+CLUSTERED ( [index_group_handle] ASC, [index_handle] ASC )
+        WITH ( PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF,
+               IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON,
+               ALLOW_PAGE_LOCKS = ON, FILLFACTOR = 90 ) ON
+[PRIMARY]
+    )
+ON  [PRIMARY]
+
+--Create repository table for sys.dm_db_missing_index_columns:
+CREATE TABLE [dbo].[dm_db_missing_index_columns]
+    (
+      [index_handle] INT NOT NULL,
+      [column_id] INT NOT NULL,
+      [column_name] NVARCHAR(128) NOT NULL,
+      [column_usage] VARCHAR(20) NOT NULL,
+      [date_stamp] DATETIME NOT NULL
+      CONSTRAINT [PK_dm_db_missing_index_columns] PRIMARY KEY
+CLUSTERED ( [index_handle] ASC, [column_id] ASC )
+        WITH ( PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF,
+               IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON,
+               ALLOW_PAGE_LOCKS = ON, FILLFACTOR = 85 ) ON
+[PRIMARY]
+    )
+ON  [PRIMARY]
+
+go
+
+CREATE PROCEDURE dbo.usp_persist_missing_index_DMV_data
+AS
+    DECLARE @last_service_start_date DATETIME 
+    DECLARE @last_data_persist_date DATETIME 
+
+/*
+Two of the three DMVs that comprise the suite of missing index DMVs do
+not 
+have running total columns.  Indentifier columns compose all their
+columns.
+Therefore there is only the need to insert new records that do not exist
+in the 
+persisted data tables; not perform updates or maintain running totals.
+*/
+
+--Insert new records into dbo.dm_db_missing_index_groups
+    INSERT  INTO [DBA].[dbo].[dm_db_missing_index_groups]
+            (
+              [index_group_handle],
+              [index_handle],
+              [date_stamp]
+            )
+            SELECT  SDDMIG.[index_group_handle],
+                    SDDMIG.[index_handle],
+                    GETDATE()
+            FROM    sys.[dm_db_missing_index_groups] SDDMIG
+                    LEFT JOIN
+[DBA].[dbo].[dm_db_missing_index_groups] MDDMIG ON
+SDDMIG.[index_group_handle] = MDDMIG.[index_group_handle]
+                                     �
+�                                     
+      AND SDDMIG.[index_handle] = MDDMIG.[index_handle]
+            WHERE   MDDMIG.[index_group_handle] IS NULL
+
+--Insert new records into dbo.dm_db_missing_index_details
+    INSERT  INTO [DBA].[dbo].[dm_db_missing_index_details]
+            (
+              [index_handle],
+              [database_id],
+              [object_id],
+              [equality_columns],
+              [inequality_columns],
+              [included_columns],
+              [statement],
+              [date_stamp]
+            )
+            SELECT  SDDMID.[index_handle],
+                    SDDMID.[database_id],
+                    SDDMID.[object_id],
+                    SDDMID.[equality_columns],
+                    SDDMID.[inequality_columns],
+                    SDDMID.[included_columns],
+                    SDDMID.[statement],
+                    GETDATE()
+            FROM    sys.[dm_db_missing_index_details] SDDMID
+                    LEFT JOIN
+[DBA].[dbo].[dm_db_missing_index_details] MDDMID ON SDDMID.[index_handle]
+= MDDMID.[index_handle]
+            WHERE   MDDMID.[index_handle] IS NULL
+
+/*
+The sys.dm_db_missing_index_columns DMF only provides normalized 
+column metadata from sys.dm_db_missing_index_details.  I only insert new
+rows into
+the table upon each cycle of persisting data from the DMOs.
+*/
+
+    INSERT  INTO [DBA].[dbo].[dm_db_missing_index_columns]
+            (
+              [index_handle],
+              [column_id],
+              [column_name],
+              [column_usage],
+              date_stamp
+            )
+            SELECT  SDDMID.[index_handle],
+                    SDDMIC.[column_id],
+                    SDDMIC.[column_name],
+                    SDDMIC.[column_usage],
+                    GETDATE()
+            FROM    sys.[dm_db_missing_index_details] SDDMID
+                    CROSS APPLY
+sys.[dm_db_missing_index_columns](SDDMID.index_handle) SDDMIC
+                    LEFT JOIN
+[DBA].[dbo].[dm_db_missing_index_columns] MDDMIC ON SDDMID.[index_handle]
+= MDDMIC.[index_handle]
+                                     �
+�                                     
+       AND SDDMIC.[column_id] = MDDMIC.[column_id]
+            WHERE   MDDMIC.[index_handle] IS NULL
+            ORDER BY SDDMID.[index_handle]
+
+--Determine last service restart date based upon tempdb creation date 
+    SELECT  @last_service_start_date = SD.[create_date]
+    FROM    sys.databases SD
+    WHERE   SD.[name] = 'tempdb' 
+  
+--Return the value for the last refresh date of the persisting table 
+    SELECT  @last_data_persist_date = MAX(MDDMIGS.[date_stamp])
+    FROM    [DBA].[dbo].[dm_db_missing_index_group_stats] MDDMIGS 
+
+--Take care of updated records first 
+    IF @last_service_start_date < @last_data_persist_date
+        BEGIN 
+   --Service restart date > last poll date 
+            PRINT 'The latest persist date was '
+                + CAST(@last_data_persist_date AS
+VARCHAR(50))
+                + '; no restarts occurred since '
+                + CAST(@last_service_start_date AS
+VARCHAR(50)) + '  ('
+                + CAST(DATEDIFF(d,
+@last_service_start_date,
+                               
+@last_data_persist_date) AS VARCHAR(10))
+                + ' days ago.)' 
+     
+            UPDATE  MDDMIGS
+            SET     MDDMIGS.unique_compiles =
+MDDMIGS.[unique_compiles]
+                    + ( SDDMIGS.[unique_compiles]
+                        -
+MDDMIGS.[last_poll_unique_compiles] ),
+                    MDDMIGS.[user_seeks] =
+MDDMIGS.[user_seeks]
+                    + ( SDDMIGS.[user_seeks] -
+MDDMIGS.[last_poll_user_seeks] ),
+                    MDDMIGS.[user_scans] =
+MDDMIGS.[user_scans]
+                    + ( SDDMIGS.[user_scans] -
+MDDMIGS.[last_poll_user_scans] ),
+                    MDDMIGS.[last_user_seek] =
+SDDMIGS.[last_user_seek],
+                    MDDMIGS.[last_user_scan] =
+SDDMIGS.[last_user_scan],
+                    MDDMIGS.[avg_total_user_cost] =
+SDDMIGS.[avg_total_user_cost],
+                    MDDMIGS.[avg_user_impact] =
+SDDMIGS.[avg_user_impact],
+                    MDDMIGS.[system_seeks] =
+MDDMIGS.[system_seeks]
+                    + ( SDDMIGS.[system_seeks]
+                        -
+MDDMIGS.[last_poll_system_seeks] ),
+                    MDDMIGS.[system_scans] =
+MDDMIGS.[system_scans]
+                    + ( SDDMIGS.[system_scans]
+                        -
+MDDMIGS.[last_poll_system_scans] ),
+                    MDDMIGS.[last_system_seek] =
+SDDMIGS.[last_system_seek],
+                    MDDMIGS.[last_system_scan] =
+SDDMIGS.[last_system_scan],
+                    MDDMIGS.[avg_total_system_cost] =
+SDDMIGS.[avg_total_system_cost],
+                    MDDMIGS.[avg_system_impact] =
+SDDMIGS.[avg_system_impact],
+                   
+MDDMIGS.[last_poll_unique_compiles] = SDDMIGS.[unique_compiles],
+                    MDDMIGS.[last_poll_user_seeks] =
+SDDMIGS.[user_seeks],
+                    MDDMIGS.[last_poll_user_scans] =
+SDDMIGS.[user_scans],
+                    MDDMIGS.[last_poll_system_seeks] =
+SDDMIGS.[system_seeks],
+                    MDDMIGS.[last_poll_system_scans] =
+SDDMIGS.[system_scans],
+                    MDDMIGS.date_stamp = GETDATE()
+            FROM   
+DBA.dbo.[dm_db_missing_index_group_stats] MDDMIGS
+                    INNER JOIN
+sys.[dm_db_missing_index_group_stats] SDDMIGS ON MDDMIGS.group_handle =
+SDDMIGS.group_handle
+       
+        END
+    ELSE
+        BEGIN 
+   --Service restart date > last poll date 
+            PRINT 'Lastest service restart occurred on '
+                + CAST(@last_service_start_date AS
+VARCHAR(50))
+                + ' which is after the latest persist date
+of '
+                + CAST(@last_data_persist_date AS
+VARCHAR(50)) 
+     
+            UPDATE  MDDMIGS
+            SET     MDDMIGS.unique_compiles =
+MDDMIGS.[unique_compiles]
+                    + SDDMIGS.[unique_compiles],
+                    MDDMIGS.[user_seeks] =
+MDDMIGS.[user_seeks]
+                    + SDDMIGS.[user_seeks],
+                    MDDMIGS.[user_scans] =
+MDDMIGS.[user_scans]
+                    + SDDMIGS.[user_scans],
+                    MDDMIGS.[last_user_seek] =
+SDDMIGS.[last_user_seek],
+                    MDDMIGS.[last_user_scan] =
+SDDMIGS.[last_user_scan],
+                    MDDMIGS.[avg_total_user_cost] =
+SDDMIGS.[avg_total_user_cost],
+                    MDDMIGS.[avg_user_impact] =
+SDDMIGS.[avg_user_impact],
+                    MDDMIGS.[system_seeks] =
+MDDMIGS.[system_seeks]
+                    + SDDMIGS.[system_seeks],
+                    MDDMIGS.[system_scans] =
+MDDMIGS.[system_scans]
+                    + SDDMIGS.[system_scans],
+                    MDDMIGS.[last_system_seek] =
+SDDMIGS.[last_system_seek],
+                    MDDMIGS.[last_system_scan] =
+SDDMIGS.[last_system_scan],
+                    MDDMIGS.[avg_total_system_cost] =
+SDDMIGS.[avg_total_system_cost],
+                    MDDMIGS.[avg_system_impact] =
+SDDMIGS.[avg_system_impact],
+                   
+MDDMIGS.[last_poll_unique_compiles] = SDDMIGS.[unique_compiles],
+                    MDDMIGS.[last_poll_user_seeks] =
+SDDMIGS.[user_seeks],
+                    MDDMIGS.[last_poll_user_scans] =
+SDDMIGS.[user_scans],
+                    MDDMIGS.[last_poll_system_seeks] =
+SDDMIGS.[system_seeks],
+                    MDDMIGS.[last_poll_system_scans] =
+SDDMIGS.[system_scans],
+                    MDDMIGS.date_stamp = GETDATE()
+            FROM   
+DBA.dbo.[dm_db_missing_index_group_stats] MDDMIGS
+                    INNER JOIN
+sys.[dm_db_missing_index_group_stats] SDDMIGS ON MDDMIGS.group_handle =
+SDDMIGS.group_handle
+    
+        END
+
+--Take care of new records next 
+    INSERT  INTO [DBA].[dbo].[dm_db_missing_index_group_stats]
+            (
+              [group_handle],
+              [unique_compiles],
+              [user_seeks],
+              [user_scans],
+              [last_user_seek],
+              [last_user_scan],
+              [avg_total_user_cost],
+              [avg_user_impact],
+              [system_seeks],
+              [system_scans],
+              [last_system_seek],
+              [last_system_scan],
+              [avg_total_system_cost],
+              [avg_system_impact],
+              [last_poll_unique_compiles],
+              [last_poll_user_seeks],
+              [last_poll_user_scans],
+              [last_poll_system_seeks],
+              [last_poll_system_scans],
+              [date_stamp] 
+            )
+            SELECT  SDDMIGS.[group_handle],
+                    SDDMIGS.[unique_compiles],
+                    SDDMIGS.[user_seeks],
+                    SDDMIGS.[user_scans],
+                    SDDMIGS.[last_user_seek],
+                    SDDMIGS.[last_user_scan],
+                    SDDMIGS.[avg_total_user_cost],
+                    SDDMIGS.[avg_user_impact],
+                    SDDMIGS.[system_seeks],
+                    SDDMIGS.[system_scans],
+                    SDDMIGS.[last_system_seek],
+                    SDDMIGS.[last_system_scan],
+                    SDDMIGS.[avg_total_system_cost],
+                    SDDMIGS.[avg_system_impact],
+                    SDDMIGS.[unique_compiles],
+                    SDDMIGS.[user_seeks],
+                    SDDMIGS.[user_scans],
+                    SDDMIGS.[system_seeks],
+                    SDDMIGS.[system_scans],
+                    GETDATE()
+            FROM    [sys].[dm_db_missing_index_group_stats]
+SDDMIGS
+                    LEFT JOIN
+DBA.[dbo].[dm_db_missing_index_group_stats] MDDMIGS ON
+SDDMIGS.[group_handle] = MDDMIGS.[group_handle]
+            WHERE   MDDMIGS.[group_handle] IS NULL
+
+GO
+
+EXEC usp_persist_dm_db_index_operational_stats
+EXEC usp_persist_dm_db_index_usage_stats
+EXEC usp_persist_missing_index_DMV_data
+
+

@@ -1,0 +1,38 @@
+SELECT TOP 5 partition_number
+INTO #tmp
+FROM sys.partitions p
+INNER JOIN sys.tables t ON p.object_id = t.object_id
+WHERE p.partition_number <> 1
+	AND t.name = 'CouponBetOddDetail'
+	AND data_compression_desc = 'columnstore'
+	AND rows > 0
+ORDER BY 1 DESC
+
+DECLARE @Queries TABLE (
+	ID INT IDENTITY(1, 1)
+	,SQLScript VARCHAR(MAX)
+	)
+DECLARE @STR_QUERY VARCHAR(MAX);
+DECLARE @StartLoop INT
+DECLARE @EndLoop INT
+
+INSERT INTO @Queries
+SELECT 'ALTER INDEX IX_CouponBetOddDetail_ColumnStore ON Reporting.CouponBetOddDetail REBUILD PARTITION =' + cast(partition_number AS VARCHAR(10)) + ' with (online=on)'
+FROM #tmp
+
+SELECT @EndLoop = MAX(ID)
+	,@StartLoop = MIN(ID)
+FROM @Queries
+
+WHILE @StartLoop < = @EndLoop
+BEGIN
+	SELECT @STR_QUERY = SQLScript
+	FROM @Queries
+	WHERE ID = @StartLoop
+
+	EXEC (@STR_QUERY)
+
+	SET @StartLoop = @StartLoop + 1
+END
+
+DROP TABLE #tmp

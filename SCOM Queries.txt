@@ -1,0 +1,557 @@
+-- ====================================================
+
+-- Performance Counter Value Short-Term Trend Analysis
+
+-- ====================================================
+
+select Path [Server] , Name, ObjectName, CounterName, [InstanceName],
+SampleValue, DATEADD(mi,datediff(mi,getutcdate(),getdate()),timesampled) SampleTime
+from PerformanceDataAllView pdv with (NOLOCK)
+inner join PerformanceCounterView pcv with (NOLOCK) on pdv.performancesourceinternalid = pcv.performancesourceinternalid
+inner join BaseManagedEntity bme with (NOLOCK) on pcv.ManagedEntityId = bme.BaseManagedEntityId
+where 
+CounterName like '%size (KB)%'
+AND pdv.[TimeSampled] >= DateADD(mi, -80, Current_TimeStamp)
+--AND pdv.[TimeSampled] >= GETDATE()-1
+--AND InstanceName ='TrapezeData'
+--AND Path like '%EDI1-05-SQL04%'
+AND InstanceName <>'_Total'
+order by 6 desc
+
+select Server,Name,CounterName,InstanceName,MAX(SampleTime)
+from
+(
+select Path [Server] , Name, ObjectName, CounterName, [InstanceName],
+SampleValue, DATEADD(mi,datediff(mi,getutcdate(),getdate()),timesampled) SampleTime
+from PerformanceDataAllView pdv with (NOLOCK)
+inner join PerformanceCounterView pcv with (NOLOCK) on pdv.performancesourceinternalid = pcv.performancesourceinternalid
+inner join BaseManagedEntity bme with (NOLOCK) on pcv.ManagedEntityId = bme.BaseManagedEntityId
+where 
+CounterName like '%size (KB)%'
+AND pdv.[TimeSampled] >= DateADD(mi, -80, Current_TimeStamp)
+--AND pdv.[TimeSampled] >= GETDATE()-1
+AND InstanceName ='TrapezeData'
+--AND Path like '%EDI1-05-SQL04%'
+AND InstanceName <>'_Total'
+)x
+group by Server,Name,CounterName,InstanceName
+
+
+select Path [Server] , Name, ObjectName, CounterName, [InstanceName],
+round(SampleValue,0)SampleValue, DATEADD(mi,datediff(mi,getutcdate(),getdate()),timesampled) SampleTime
+from PerformanceDataAllView pdv with (NOLOCK)
+inner join PerformanceCounterView pcv with (NOLOCK) on pdv.performancesourceinternalid = pcv.performancesourceinternalid
+inner join BaseManagedEntity bme with (NOLOCK) on pcv.ManagedEntityId = bme.BaseManagedEntityId
+where 
+CounterName like '%DB Log File Free Space (MB)%'
+AND pdv.[TimeSampled] >= DateADD(mi, -8000, Current_TimeStamp)
+--AND pdv.[TimeSampled] >= GETDATE()-1
+AND InstanceName like '%Hobbycraft_Log%'
+--AND Path like '%EDI9-62-SQL11%'
+--AND InstanceName <>'_Total'
+and SampleValue not like '15[234]%'
+
+order by 7 desc
+
+select server, round(avg(samplevalue),0)avg_ple from
+(
+select Path [Server] , Name, ObjectName, CounterName, [InstanceName],
+round(SampleValue,0)SampleValue, DATEADD(mi,datediff(mi,getutcdate(),getdate()),timesampled) SampleTime
+from PerformanceDataAllView pdv with (NOLOCK)
+inner join PerformanceCounterView pcv with (NOLOCK) on pdv.performancesourceinternalid = pcv.performancesourceinternalid
+inner join BaseManagedEntity bme with (NOLOCK) on pcv.ManagedEntityId = bme.BaseManagedEntityId
+where 
+CounterName like '%life%'
+ --pdv.[TimeSampled] >= DateADD(mi, -80, Current_TimeStamp)
+AND pdv.[TimeSampled] >= GETDATE()-7   
+--AND InstanceName like '%Hobbycraft_Log%'
+--AND Path like '%edi9-14%'
+--AND InstanceName <>'_Total'
+--and SampleValue not like '15[234]%'
+--and ObjectName='MSSQL$SQL_62:Buffer Manager'
+)x
+group by server
+order by 2 desc
+
+-- =============================================
+
+-- Performance Counter Value at MAX(SampleTime)
+
+-- =============================================
+
+select distinct a.* from
+(
+select Path [Server] , Name, ObjectName, CounterName, [InstanceName],
+SampleValue, DATEADD(mi,datediff(mi,getutcdate(),getdate()),timesampled) SampleTime
+from PerformanceDataAllView pdv with (NOLOCK)
+inner join PerformanceCounterView pcv with (NOLOCK) on pdv.performancesourceinternalid = pcv.performancesourceinternalid
+inner join BaseManagedEntity bme with (NOLOCK) on pcv.ManagedEntityId = bme.BaseManagedEntityId
+where 
+CounterName like '%size (KB)%'
+AND pdv.[TimeSampled] >= DateADD(mi, -80, Current_TimeStamp)
+--AND pdv.[TimeSampled] >= GETDATE()-1
+--AND InstanceName ='TrapezeData'
+--AND Path like '%EDI1-05-SQL04%'
+--AND Name ='SQL_35'
+AND InstanceName <>'_Total'
+)a,
+(
+select Server,Name,CounterName,InstanceName,MAX(SampleTime) SampleTime
+from
+(
+select Path [Server] , Name, ObjectName, CounterName, [InstanceName],
+SampleValue, DATEADD(mi,datediff(mi,getutcdate(),getdate()),timesampled) SampleTime
+from PerformanceDataAllView pdv with (NOLOCK)
+inner join PerformanceCounterView pcv with (NOLOCK) on pdv.performancesourceinternalid = pcv.performancesourceinternalid
+inner join BaseManagedEntity bme with (NOLOCK) on pcv.ManagedEntityId = bme.BaseManagedEntityId
+where 
+CounterName like '%size (KB)%'
+AND pdv.[TimeSampled] >= DateADD(mi, -80, Current_TimeStamp)
+--AND pdv.[TimeSampled] >= GETDATE()-1
+--AND InstanceName ='TrapezeData'
+--AND Path like '%EDI1-05-SQL04%'
+--AND Name ='SQL_35'
+AND InstanceName <>'_Total'
+)x
+group by Server,Name,CounterName,InstanceName
+)b
+where a.CounterName=b.CounterName and a.Name=b.Name and a.Server=b.Server and a.SampleTime=b.SampleTime
+order by 6 desc
+
+-- =============================================
+
+-- DB Inventory
+
+-- =============================================
+
+ALTER PROCEDURE usp_db_inventory
+AS
+SELECT Path [Server]
+	,NAME
+	,ObjectName
+	,CounterName
+	,[InstanceName]
+	,SampleValue
+	,DATEADD(mi, datediff(mi, getutcdate(), getdate()), timesampled) SampleTime
+INTO #q
+FROM PerformanceDataAllView pdv WITH (NOLOCK)
+INNER JOIN PerformanceCounterView pcv WITH (NOLOCK) ON pdv.performancesourceinternalid = pcv.performancesourceinternalid
+INNER JOIN BaseManagedEntity bme WITH (NOLOCK) ON pcv.ManagedEntityId = bme.BaseManagedEntityId
+WHERE CounterName LIKE '%size (KB)%'
+	AND pdv.[TimeSampled] >= DateADD(mi, - 800, Current_TimeStamp)
+	--AND pdv.[TimeSampled] >= GETDATE()-1
+	--AND InstanceName like '%hobbycraft%'
+	--AND Path like '%EDI1-05-SQL04%'
+	--AND Name ='SQL_35'
+	AND InstanceName <> '_Total'
+
+--select * from #q where instancename like '%sysprocompany2%' and server like '%ash%' order by 6
+SELECT SERVER
+	,NAME
+	,CounterName
+	,InstanceName
+	,MAX(SampleTime) SampleTime
+INTO #z
+FROM #q x
+GROUP BY SERVER
+	,NAME
+	,CounterName
+	,InstanceName
+
+--select  * from #z where countername='Data File(s) Size (KB)' and instancename not in ('master','model','tempdb','msdb','mssqlsystemresource')
+SELECT DatabaseName_10C1C7F7_BA0F_5F9B_C74A_79A891170934 [DatabaseName]
+	,DatabaseAutogrow_10C1C7F7_BA0F_5F9B_C74A_79A891170934 [DBAutogrow]
+	,Updateability_10C1C7F7_BA0F_5F9B_C74A_79A891170934 [Updateability]
+	,LogAutogrow_10C1C7F7_BA0F_5F9B_C74A_79A891170934 [LogAutogrow]
+	,UserAccess_10C1C7F7_BA0F_5F9B_C74A_79A891170934 [UserAccess]
+	,Owner_10C1C7F7_BA0F_5F9B_C74A_79A891170934 [Owner]
+	,RecoveryModel_10C1C7F7_BA0F_5F9B_C74A_79A891170934 [RecoveryModel]
+	,Collation_10C1C7F7_BA0F_5F9B_C74A_79A891170934 [Collation]
+	,MirroringRole_0BC1ABD0_6DD4_AF8D_C70B_731A54842020 MirrorRole
+	,Partner_0BC1ABD0_6DD4_AF8D_C70B_731A54842020 MirrorPartner
+	,Level_0BC1ABD0_6DD4_AF8D_C70B_731A54842020 MirrorType
+	,ConnectionString_B87E82BC_1A85_4DE3_330A_13133CF5F9C3 [InstanceName]
+	,Account_B87E82BC_1A85_4DE3_330A_13133CF5F9C3 [DB Engine Service Account]
+	,AuthenticationMode_B87E82BC_1A85_4DE3_330A_13133CF5F9C3 [Authentication Mode]
+	,Edition_B87E82BC_1A85_4DE3_330A_13133CF5F9C3 Edition
+	,ErrorLogLocation_B87E82BC_1A85_4DE3_330A_13133CF5F9C3 ErrorLogLocation
+	,InstallPath_B87E82BC_1A85_4DE3_330A_13133CF5F9C3 InstallPath
+	,MasterDatabaseLocation_B87E82BC_1A85_4DE3_330A_13133CF5F9C3 MasterDBDataLocation
+	,MasterDatabaseLogLocation_B87E82BC_1A85_4DE3_330A_13133CF5F9C3 MasterDBLogLocation
+	,ServicePackVersion_B87E82BC_1A85_4DE3_330A_13133CF5F9C3 SPVersion
+	,Version_B87E82BC_1A85_4DE3_330A_13133CF5F9C3 Build
+	,LogicalProcessors
+INTO #x
+FROM [OperationsManager].[dbo].MT_Database T1
+LEFT JOIN [OperationsManager].[dbo].MT_Database_2 T2 ON T1.BaseManagedEntityId = T2.BaseManagedEntityId
+LEFT JOIN [OperationsManager].[dbo].MT_Database_1 T3 ON T1.BaseManagedEntityId = T3.BaseManagedEntityId
+LEFT JOIN [OperationsManager].[dbo].MT_Database_0 T4 ON T1.BaseManagedEntityId = T4.BaseManagedEntityId
+LEFT JOIN [OperationsManager].[dbo].[Relationship] RT5 ON (
+		RT5.RelationshipTypeId = '328C1DCD-4AA5-9964-F3B6-0E607AE58416'
+		AND RT5.TargetEntityId = T1.BaseManagedEntityId
+		)
+LEFT JOIN [OperationsManager].[dbo].MTV_DBEngine T5 ON RT5.SourceEntityId = T5.BaseManagedEntityId
+LEFT JOIN [OperationsManager].[dbo].[Relationship] RT6 ON (
+		RT6.RelationshipTypeId = '6284518A-90CC-FADD-E56B-26669E2A0A8F'
+		AND RT6.TargetEntityId = T5.BaseManagedEntityId
+		)
+LEFT JOIN [OperationsManager].[dbo].MTV_Computer T6 ON RT6.SourceEntityId = T6.BaseManagedEntityId
+INNER JOIN [OperationsManager].[dbo].BaseManagedEntity BME ON BME.BaseManagedEntityId = T1.BaseManagedEntityId
+WHERE BME.IsDeleted = 0
+	AND BME.BaseManagedTypeId = '10C1C7F7-BA0F-5F9B-C74A-79A891170934'
+
+--Performance Counter Value at MAX(SampleTime)
+SELECT DISTINCT a.*
+INTO #y
+FROM #q a
+INNER JOIN #z b ON a.CounterName = b.CounterName
+	AND a.NAME = b.NAME
+	AND a.SERVER = b.SERVER
+	AND a.SampleTime = b.SampleTime
+
+SELECT DISTINCT CASE 
+		WHEN CHARINDEX('\', x.instancename) - 1 = '-1'
+			THEN x.instancename
+		ELSE substring(x.instancename, 1, CHARINDEX('\', x.instancename) - 1)
+		END AS [Server]
+	,CASE 
+		WHEN CHARINDEX('\', x.instancename) - 1 = '-1'
+			THEN 'MSSQLSERVER'
+		ELSE rtrim(substring(x.instancename, CHARINDEX('\', x.instancename) + 1, 50))
+		END AS Inst
+	,x.[DatabaseName]
+	,y.CounterName
+	,y.SampleValue [File Size (KB)]
+	,x.[DBAutogrow]
+	,x.[Updateability]
+	,x.[LogAutogrow]
+	,x.[UserAccess]
+	,x.[Owner]
+	,x.[RecoveryModel]
+	,x.[Collation]
+	,x.MirrorRole
+	,x.MirrorPartner
+	,x.MirrorType
+	,x.[DB Engine Service Account]
+	,x.[Authentication Mode]
+	,x.Edition
+	,x.ErrorLogLocation
+	,x.InstallPath
+	,x.MasterDBDataLocation
+	,x.MasterDBLogLocation
+	,x.SPVersion
+	,x.Build
+	,x.LogicalProcessors
+INTO #i
+FROM #x x
+FULL JOIN #y y ON CASE 
+		WHEN CHARINDEX('\', x.instancename) - 1 = '-1'
+			THEN x.instancename
+		ELSE substring(x.instancename, 1, CHARINDEX('\', x.instancename) - 1)
+		END = CASE 
+		WHEN CHARINDEX('.', y.SERVER) - 1 = '-1'
+			THEN y.SERVER
+		ELSE substring(y.SERVER, 1, CHARINDEX('.', y.SERVER) - 1)
+		END
+	AND CASE 
+		WHEN CHARINDEX('\', x.instancename) - 1 = '-1'
+			THEN 'MSSQLSERVER'
+		ELSE rtrim(substring(x.instancename, CHARINDEX('\', x.instancename) + 1, 50))
+		END = y.NAME
+	AND x.databasename = y.instancename
+WHERE x.databasename NOT IN (
+		'master'
+		,'model'
+		,'tempdb'
+		,'msdb'
+		,'mssqlsystemresource'
+		)
+	AND y.instancename NOT IN (
+		'master'
+		,'model'
+		,'tempdb'
+		,'msdb'
+		,'mssqlsystemresource'
+		)
+
+--select * from #i where InstanceName like '%ashd%' and DatabaseName like '%sage%'
+SELECT DISTINCT s.*
+	,i.*
+FROM #i i
+FULL JOIN sql_static_data s ON i.inst = s.instance
+	AND CASE 
+		WHEN CHARINDEX('.', s.SERVER) - 1 = '-1'
+			THEN s.SERVER
+		ELSE substring(s.SERVER, 1, CHARINDEX('.', s.SERVER) - 1)
+		END = i.SERVER
+ORDER BY 9 DESC
+
+
+-- =======================================================================
+
+-- To find all managed computers that are currently down and not pingable:
+
+-- =======================================================================
+
+
+SELECT bme.DisplayName,s.LastModified as LastModifiedUTC 
+FROM state AS s, BaseManagedEntity AS bme 
+WHERE s.basemanagedentityid = bme.basemanagedentityid 
+AND s.monitorid 
+IN (SELECT MonitorId FROM Monitor WHERE MonitorName = 'Microsoft.SystemCenter.HealthService.ComputerDown') 
+AND s.Healthstate = '3' AND bme.IsDeleted = '0' 
+ORDER BY s.Lastmodified DESC
+
+-- =============================================
+
+-- Free Space On All Monitored Logical Disks
+
+-- =============================================
+
+SELECT bme.Path, ps.PerfmonInstanceName, pdav.SampleValue, pdav.TimeSampled 
+FROM PerformanceDataAllView (NOLOCK) AS pdav  
+INNER JOIN PerformanceSource (NOLOCK) ps ON pdav.PerformanceSourceInternalId = ps.PerformanceSourceInternalId 
+INNER JOIN Rules (NOLOCK) r ON ps.RuleId = r.RuleId 
+INNER JOIN BaseManagedEntity (NOLOCK) bme ON ps.BaseManagedEntityID = bme.BaseManagedEntityID 
+WHERE r.RuleName like '%LogicalDisk%FreeSpace%'
+AND pdav.TimeSampled = (SELECT MAX(TimeSampled) FROM PerformanceDataAllView WHERE PerformanceSourceInternalId = pdav.PerformanceSourceInternalId )
+AND SampleValue < 20
+AND ps.PerfmonInstanceName in ('G:','H:','K:')
+AND bme.Path like '%SQL%'
+ORDER BY SampleValue
+
+
+-- =============================================
+
+-- OS Inventory
+
+-- =============================================
+
+
+
+ALTER PROCEDURE usp_OperatingSystem
+AS
+SELECT MT_Computer.NetworkName
+	,MT_Computer.IPAddress
+	,MT_Computer.OrganizationalUnit
+	,MT_Computer.ActiveDirectoryObjectSid
+	,MT_Computer.ForestDnsName
+	,MT_Computer.NetbiosComputerName
+	,MT_Computer.IsVirtualMachine
+	,MT_Computer.NetbiosDomainName
+	,MT_Computer.DNSName
+	,MT_Computer.DomainDnsName
+	,MT_Computer.ActiveDirectorySite
+	,MT_Computer.PrincipalName
+	,MT_Computer.LogicalProcessors
+	,MT_OperatingSystem.OSVersion_66DD9B43_3DC1_3831_95D4_1B03B0A6EA13 OSVersion
+	,MT_OperatingSystem.SerialNumber_66DD9B43_3DC1_3831_95D4_1B03B0A6EA13 SerialNumber
+	,MT_OperatingSystem.PhysicalMemory_66DD9B43_3DC1_3831_95D4_1B03B0A6EA13 PhysicalMemory
+	,MT_OperatingSystem.OSVersionDisplayName_66DD9B43_3DC1_3831_95D4_1B03B0A6EA13 OSVersionDisplayName
+	,MT_OperatingSystem.LogicalProcessors_66DD9B43_3DC1_3831_95D4_1B03B0A6EA13 LogicalProcessors
+	,MT_OperatingSystem.SystemDrive_66DD9B43_3DC1_3831_95D4_1B03B0A6EA13 SystemDrive
+	,MT_OperatingSystem.InstallDate_66DD9B43_3DC1_3831_95D4_1B03B0A6EA13 InstallDate
+	,MT_OperatingSystem.WindowsDirectory_66DD9B43_3DC1_3831_95D4_1B03B0A6EA13 WindowsDir
+	,MT_OperatingSystem.ServicePackVersion_66DD9B43_3DC1_3831_95D4_1B03B0A6EA13 ServicePackVer
+	,MT_OperatingSystem.CSDVersion_66DD9B43_3DC1_3831_95D4_1B03B0A6EA13 CDSVer
+	,MT_OperatingSystem.BuildNumber_66DD9B43_3DC1_3831_95D4_1B03B0A6EA13 BuildNumber
+FROM MT_OperatingSystem
+INNER JOIN BaseManagedEntity ON MT_OperatingSystem.BaseManagedEntityId = BaseManagedEntity.BaseManagedEntityId
+INNER JOIN MT_Computer ON BaseManagedEntity.TopLevelHostEntityId = MT_Computer.BaseManagedEntityId
+ORDER BY 1
+
+-- ================================================================
+
+-- Long Term Aggregated Avg/Min/Max/Std Dev Counter Values by Time
+
+-- ================================================================
+
+
+--Get daily aggregated data for Processor\% Processor Time collected by a specific rule
+SELECT vme2.DisplayName
+	,vpd.DATETIME
+	,pr.ObjectName
+	,pr.CounterName
+	,SampleCount
+	,vpd.AverageValue
+	,vpd.MinValue
+	,vpd.MaxValue
+	,vpd.StandardDeviation
+FROM vPerformanceRule pr
+INNER JOIN vPerformanceRuleInstance pri ON pri.rulerowId = pr.RuleRowId
+INNER JOIN vRule vr ON vr.RuleRowId = pr.RuleRowId
+INNER JOIN Perf.vPerfDaily vpd ON vpd.PerformanceRuleInstanceRowId = pri.PerformanceRuleInstanceRowId
+INNER JOIN vManagedEntity vme ON vme.ManagedEntityRowId = vpd.ManagedEntityRowId
+INNER JOIN vManagedEntity vme2 ON vme2.ManagedEntityRowId = vme.TopLevelHostManagedEntityRowId
+WHERE DATETIME BETWEEN '1-jun-2013'
+		AND '3-jun-2013'
+	AND vme2.DisplayName LIKE '%SQL%'
+ORDER BY 1
+	,4
+	,2 DESC
+
+
+-- ================================================================
+
+-- Last Agent Job Run State
+
+-- ================================================================
+
+
+select * from (
+SELECT bme.Path
+	,bme.DisplayName Job
+	,CASE HealthState
+		WHEN 0
+			THEN 'NOT MONITORED'
+		WHEN 1
+			THEN 'HEALTHY'
+		WHEN 2
+			THEN 'WARNING'
+		WHEN 3
+			THEN 'CRITICAL'
+		END AS HealthState
+	,s.LastModified 
+FROM STATE AS s
+INNER JOIN BaseManagedEntity AS bme ON s.BaseManagedEntityId = bme.BaseManagedEntityId
+INNER JOIN Monitor ON s.MonitorId = Monitor.MonitorId
+WHERE Monitor.MonitorName LIKE '%joblastrun%'
+and HealthState=2  
+)x left join sql_static_data d
+on charindex(replace(d.server,'.mis.digimis.com',''),Path)>0 and charindex(replace(d.instance,'.mis.digimis.com',''),Path)>0
+where (role='prod' or Role is null)
+and d.Customer not in ('vertu')
+and Job not like '%a10%'
+order by 4
+
+
+-- ================================================================
+
+-- To find all monitors targeted at a specific class
+
+-- ================================================================
+
+
+SELECT * FROM monitor WHERE TargetManagedEntityType = 
+(SELECT ManagedTypeID FROM ManagedType WHERE TypeName ='Microsoft.SQLServer.DBEngine')
+
+
+-- ================================================================
+
+-- Wrong Domain Logins Report and Estate Instance List
+
+-- ================================================================
+
+
+SELECT bme.Path
+	,bme.DisplayName
+	,CASE HealthState
+		WHEN 0
+			THEN 'NOT MONITORED'
+		WHEN 1
+			THEN 'HEALTHY'
+		WHEN 2
+			THEN 'WARNING'
+		WHEN 3
+			THEN 'CRITICAL'
+		END AS HealthState
+	,s.LastModified AS DATE
+	,Monitor.MonitorName
+FROM STATE AS s
+INNER JOIN BaseManagedEntity AS bme ON s.BaseManagedEntityId = bme.BaseManagedEntityId
+INNER JOIN Monitor ON s.MonitorId = Monitor.MonitorId
+WHERE monitor.Monitorid='290B95B6-6C1B-A47E-F62B-4C58363A45F4'
+ORDER BY 3 DESC
+
+-- ================================================================
+
+-- PROD DBs Not Backed Up Within Last 48Hrs
+
+-- ================================================================
+
+SELECT bme.Path
+	,bme.DisplayName
+	,CASE HealthState
+		WHEN 0
+			THEN 'NOT MONITORED'
+		WHEN 1
+			THEN 'HEALTHY'
+		WHEN 2
+			THEN 'WARNING'
+		WHEN 3
+			THEN 'CRITICAL'
+		END AS HealthState
+	,s.LastModified AS DATE
+	,Monitor.MonitorName
+FROM STATE AS s
+INNER JOIN BaseManagedEntity AS bme ON s.BaseManagedEntityId = bme.BaseManagedEntityId
+INNER JOIN Monitor ON s.MonitorId = Monitor.MonitorId
+WHERE Monitor.MonitorId='90E51A9B-76A2-06C3-1918-58E76E888255'
+and Path like '%62%'
+ORDER BY 1,2
+
+
+-- ================================================================
+
+-- Wrong Service Pack
+
+-- ================================================================
+
+
+SELECT bme.Path
+	,bme.DisplayName
+	,CASE HealthState
+		WHEN 0
+			THEN 'NOT MONITORED'
+		WHEN 1
+			THEN 'HEALTHY'
+		WHEN 2
+			THEN 'WARNING'
+		WHEN 3
+			THEN 'CRITICAL'
+		END AS HealthState
+	,s.LastModified AS DATE
+	,Monitor.MonitorName
+FROM STATE AS s
+INNER JOIN BaseManagedEntity AS bme ON s.BaseManagedEntityId = bme.BaseManagedEntityId
+INNER JOIN Monitor ON s.MonitorId = Monitor.MonitorId
+WHERE monitor.Monitorid='A3CB83C4-BF10-528E-8E0F-3399E98DAF11'
+ORDER BY 3 DESC
+
+
+-- ================================================================
+
+-- Signal Wait Times
+
+-- ================================================================
+
+SELECT bme.Path
+	,bme.DisplayName
+	,CASE HealthState
+		WHEN 0
+			THEN 'NOT MONITORED'
+		WHEN 1
+			THEN 'HEALTHY'
+		WHEN 2
+			THEN 'WARNING'
+		WHEN 3
+			THEN 'CRITICAL'
+		END AS HealthState
+	,s.LastModified AS DATE
+	,Monitor.MonitorName
+FROM STATE AS s
+INNER JOIN BaseManagedEntity AS bme ON s.BaseManagedEntityId = bme.BaseManagedEntityId
+INNER JOIN Monitor ON s.MonitorId = Monitor.MonitorId
+WHERE Monitor.MonitorId = (
+		SELECT monitorid
+		FROM monitor
+		WHERE TargetManagedEntityType = (
+				SELECT ManagedTypeID
+				FROM ManagedType
+				WHERE TypeName = 'Microsoft.SQLServer.DBEngine'
+				)
+			AND ConfigurationXML LIKE '%signal%'
+		)
+--and Path like '%62%'
+ORDER BY 1
+	,2

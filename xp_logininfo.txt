@@ -1,0 +1,5 @@
+EXEC xp_logininfo 'BETAGY\m.doran' , 'all';
+
+
+    And: EXEC xp_logininfo 'BETAGY\techsupport_sec_group','members';
+    to see the other way around

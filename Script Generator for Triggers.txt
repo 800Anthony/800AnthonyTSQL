@@ -1,0 +1,268 @@
+﻿
+
+Use Master
+IF Exists(Select * from SysObjects Where
+ID=Object_ID('sp_ScriptTriggers') and ObjectProperty(id, 'ISPROCEDURE')=1)
+ DROP PROCEDURE  sp_ScriptTriggers
+GO
+/* 
+ 
+sp_ScriptTriggers 
+ 
+ This Stored Procedure creates the script of all existing triggers of
+the current database
+ Optionally it creates the script to drop the triggers too. 
+ Triggers may belong to different owners. This procedure takes care of
+it. 
+ 
+Parameter:
+ @InclDrop bit 
+ Possible values
+  0 - Script to drop the triggers is not generated. 
+  1 - Script to drip the triggers is generated. 
+ 
+Method os Use:
+ Save this procedure in Master  
+ Connect to the desired database and run the procedure. 
+ in the results pane the script will be ready. 
+
+  
+---------------------------------------------------------------------------
+----------------- 
+--      Written By G.R. Preethiviraj Kulasingham 
+--       Last Modified on 28th March 2002. 
+---------------------------------------------------------------------------
+----------------- 
+ 
+*/ 
+ 
+CREATE PROCEDURE sp_ScriptTriggers @InclDrop bit =1 
+AS 
+Declare @SQL varchar(8000),        
+ @Text nvarchar(4000),       
+ @BlankSpaceAdded   int,        
+ @BasePos       int,       
+ @CurrentPos    int,       
+ @TextLength    int,       
+ @LineId        int,       
+ @MaxID   int,
+ @AddOnLen      int,       
+ @LFCR          int,  
+ @DefinedLength int,       
+ @SyscomText nvarchar(4000),       
+ @Line nvarchar(1000),     
+ @UserName sysname, 
+ @ObjID int,       
+ @OldTrigID int 
+Set NoCount on       
+       
+SET @DefinedLength = 1000 
+SET @BlankSpaceAdded = 0        
+ 
+IF @InclDrop<>0 
+ SET @InclDrop =1 
+-- This Part Validated the Input parameters 
+ 
+Declare  @Triggers Table(       
+ UserName sysname not null,        
+ TrigName sysname NOT NULL,        
+ ObjID  int NOT NULL    
+)       
+       
+Declare @TrigText Table(       
+ ObjID int NOT NULL,   
+ LineID int NOT NULL,        
+ LineText nvarchar(1000) NULL       
+)       
+ 
+Insert into @Triggers (UserName, TrigName, ObjID)   
+Select Distinct A.Name,  B.Name, B.ID  
+from dbo.Sysusers A,  
+ dbo.SysObjects B,  
+ dbo.sysComments C  
+Where A.uid = B.uid and 
+ B.Type ='Tr' and 
+ B.id = C.id and 
+ C.encrypted =0 
+   
+If Exists(Select C.* from sysComments C, sysObjects O
+Where O.id = C.id and
+ O.type ='Tr' and
+ C.Encrypted =1)
+BEGIN
+ Print '/*'
+ Print 'The following encrypted triggers were found'
+ Print 'The procedure could not write the script for it'
+ Select Distinct A.Name,  B.Name, B.ID  
+ from dbo.Sysusers A,  
+   dbo.SysObjects B,  
+   dbo.sysComments C  
+ Where A.uid = B.uid and 
+   B.Type ='Tr' and 
+   B.id = C.id and 
+   C.encrypted =1
+ Print '*/'
+END
+
+DECLARE ms_crs_syscom  CURSOR LOCAL FORWARD_ONLY   
+        FOR Select T.ObjID, C.Text from @Triggers T,
+Dbo.SysComments C   
+ WHERE T.ObjID = C.ID Order By T.ObjID, C.ColID       
+        FOR READ ONLY       
+       
+SELECT @LFCR = 2       
+SELECT @LineId = 1       
+           
+OPEN ms_crs_syscom       
+SET @OldTrigID = -1       
+FETCH NEXT FROM ms_crs_syscom into  @ObjID, @SyscomText       
+       
+WHILE @@fetch_status = 0       
+BEGIN       
+       
+SELECT  @BasePos    = 1       
+SELECT  @CurrentPos = 1       
+SELECT  @TextLength = LEN(@SyscomText)   
+
+IF @ObjID <>@OldTrigID        
+BEGIN       
+SET @LineID = 1        
+SET @OldTrigID = @ObjID       
+END       
+WHILE @CurrentPos  != 0       
+BEGIN       
+--Looking for end of line followed by carriage return       
+SELECT @CurrentPos =   CHARINDEX(char(13)+char(10), @SyscomText,
+@BasePos)       
+
+--If carriage return found       
+IF @CurrentPos != 0       
+BEGIN       
+  /*If new value for @Lines length will be > then the       
+  **set length then insert current contents of @line       
+  **and proceed.       
+*/       
+ While (isnull(LEN(@Line),0) + @BlankSpaceAdded + @CurrentPos-@BasePos +
+@LFCR) > @DefinedLength       
+   BEGIN       
+  SELECT @AddOnLen = @DefinedLength-(isnull(LEN(@Line),0) +
+@BlankSpaceAdded)       
+  INSERT @TrigText VALUES       
+   ( @ObjID, @LineId,       
+   isnull(@Line, N'') + isnull(SUBSTRING(@SyscomText, @BasePos,
+@AddOnLen), N''))       
+  SELECT @Line = NULL, @LineId = @LineId + 1,       
+     @BasePos = @BasePos + @AddOnLen, @BlankSpaceAdded =
+0       
+ END       
+ SELECT @Line    = isnull(@Line, N'') + isnull(SUBSTRING(@SyscomText,
+@BasePos, @CurrentPos-@BasePos + @LFCR), N'')       
+ SELECT @BasePos = @CurrentPos+2       
+ INSERT @TrigText VALUES( @ObjID, @LineId, @Line )       
+ SELECT @LineId = @LineId + 1       
+ SELECT @Line = NULL       
+END       
+ELSE       
+ --else carriage return not found       
+ BEGIN       
+  IF @BasePos <= @TextLength       
+  BEGIN       
+   /*If new value for @Lines length will be > then the       
+   **defined length       
+   */       
+   While (isnull(LEN(@Line),0) + @BlankSpaceAdded +
+@TextLength-@BasePos+1 ) > @DefinedLength       
+   BEGIN       
+    SELECT @AddOnLen = @DefinedLength - (isnull(LEN(@Line),0) +
+@BlankSpaceAdded)       
+    INSERT @TrigText VALUES       
+     ( @ObjID, @LineId,       
+     isnull(@Line, N'') + isnull(SUBSTRING(@SyscomText, @BasePos,
+@AddOnLen), N''))       
+    SELECT @Line = NULL, @LineId = @LineId + 1,       
+     @BasePos = @BasePos + @AddOnLen, @BlankSpaceAdded =
+0       
+   END       
+   SELECT @Line = isnull(@Line, N'') + isnull(SUBSTRING(@SyscomText,
+@BasePos, @TextLength-@BasePos+1 ), N'')       
+   if LEN(@Line) < @DefinedLength and charindex(' ', @SyscomText,
+@TextLength+1 ) > 0       
+   BEGIN       
+    SELECT @Line = @Line + ' ', @BlankSpaceAdded = 1       
+   END       
+  END       
+ END       
+END       
+       
+FETCH NEXT FROM ms_crs_syscom into @ObjID, @SyscomText       
+END       
+       
+IF @Line is NOT NULL       
+    INSERT @TrigText VALUES( @ObjID, @LineId, @Line )       
+       
+       
+CLOSE  ms_crs_syscom       
+      
+Print '-- You should run this result under dbo if your triggers belong to
+multiple users' 
+Print '' 
+ 
+IF @InclDrop =1  
+BEGIN 
+ Print '-- Dropping the Triggers' 
+ Print '' 
+ select 'If exists(Select * from sysObjects where id
+=Object_ID(''['+UserName+'].['+TrigName+']'') and
+ObjectProperty(Object_ID(''['+UserName+'].['+TrigName+']''),
+''ISTRIGGER'')=1) 
+ Drop Trigger ['+UserName+'].['+TrigName+']
+'+char(13)+char(10)+'GO'+char(13)+char(10)+char(13)+char(10)  from
+@Triggers 
+END  
+ 
+Print
+'--------------------------------------------------------------------------
+----------' 
+ 
+Print '-- Creation of Triggers' 
+Print '' 
+Print '' 
+ 
+DECLARE ms_Users  CURSOR LOCAL FORWARD_ONLY   
+FOR 
+ SELECT T.UserName, T.ObjID, Max(D.LineID)
+ FROM @Triggers T, @TrigText D
+ WHERE T.ObjID = D.ObjID
+ GROUP BY T.UserName, T.ObjID
+ FOR READ ONLY 
+ 
+Open ms_Users 
+FETCH NEXT FROM ms_Users into  @UserName, @ObjID, @MaxID       
+       
+WHILE @@fetch_status = 0       
+BEGIN       
+ Print 'SetUser N'''+@UserName+''''+Char(13)+Char(10)
+ Select '-- Text of the Trigger'= 
+ Case LineID  
+  WHEN 1 THEN 'GO'+char(13)+Char(10)+ LineText 
+  WHEN @MaxID THEN LineText+'GO'
+  ELSE LineText 
+ END 
+ FROM @TrigText          
+ Where ObjID =@ObjID  
+ Order By LineId 
+ Print 'Setuser'
+ FETCH NEXT FROM ms_Users into  @UserName, @ObjID, @MaxID       
+END 
+Close ms_Users 
+Print 'GO'
+Print '------------------------------------- End
+------------------------------------------' 
+ 
+DeAllocate ms_crs_syscom         
+DeAllocate ms_Users         
+SET NOCOUNT ON 
+
+ 
+
+

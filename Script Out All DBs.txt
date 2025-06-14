@@ -1,0 +1,211 @@
+﻿
+
+
+$sqlserver="lonss0246\gfa,1203"
+
+$filePath = "F:\MSSQL10_50.GFA\MSSQL\Backup\"
+
+$instance="LON-DB-GFA-PROD"
+
+[System.Reflection.Assembly]::LoadWithPartialName("Microsoft.SqlServer.Smo"
+) | Out-null
+
+$srv = new-object "Microsoft.SqlServer.Management.Smo.Server" $sqlserver
+
+$options = new-object
+"Microsoft.SqlServer.Management.Smo.ScriptingOptions"
+
+$options.AppendToFile = $true
+
+$options.ToFileOnly = $true
+
+$options.ClusteredIndexes = $true
+
+$options.NonClusteredIndexes = $true
+
+$options.DriAll = $true
+
+$parentdir=$filePath+"["+$instance+"]\"
+
+New-Item $parentdir -type directory
+
+$filepath=$parentdir
+
+　
+
+foreach($db in $srv.Databases | where {$_.IsSystemObject -eq $false})
+
+{
+
+$dbpath=$filePath+$db
+
+New-Item $dbpath -type directory
+
+$objectpath=$dbpath+"\Tables"
+
+New-Item $objectpath -type directory
+
+$objectpath=$dbpath+"\Schemas"
+
+New-Item $objectpath -type directory
+
+$objectpath=$dbpath+"\Views"
+
+New-Item $objectpath -type directory
+
+$objectpath=$dbpath+"\StoredProcedures"
+
+New-Item $objectpath -type directory
+
+$objectpath=$dbpath+"\Triggers"
+
+New-Item $objectpath -type directory
+
+$objectpath=$dbpath+"\Functions"
+
+New-Item $objectpath -type directory
+
+　
+
+}
+
+　
+
+foreach($db in $srv.Databases | where {$_.IsSystemObject -eq $false})
+
+{
+
+foreach($View in $db.Views | where {$_.IsSystemObject -eq $false})
+
+{
+
+$options.FileName = $filePath + '['+$db.Name+']\Views\' +'['+$View.Name +
+'].View'
+
+$view.Script($options)
+
+trap {continue}
+
+}
+
+
+
+}
+
+foreach($db in $srv.Databases | where {$_.IsSystemObject -eq $false})
+
+{
+
+foreach($Schema in $db.Schemas | where {$_.IsSystemObject -eq $false})
+
+{
+
+$sch=$Schema.Name
+
+$sch=$sch.replace("\","_")
+
+$options.FileName = $filePath + '['+$db.Name+']\Schemas\' +'['+$sch +
+'].Schema'
+
+$Schema.Script($options)
+
+trap {continue}
+
+}
+
+}
+
+foreach($db in $srv.Databases | where {$_.IsSystemObject -eq $false})
+
+{
+
+foreach($Table in $db.Tables | where {$_.IsSystemObject -eq $false})
+
+{
+
+$sch=$Table.Name
+
+$sch=$sch.replace("\","_")
+
+$options.FileName = $filePath + '['+$db.Name+']\Tables\' +'['+$sch +
+'].Table'
+
+$Table.Script($options)
+
+trap {continue}
+
+foreach($Trigger in $Table.Triggers)
+
+{
+
+$trg=$Trigger.Name
+
+$trg=$trg.replace("\","_")
+
+$options.FileName = $filePath + '['+$db.Name+']\Triggers\' +'['+$trg +
+'].Trigger'
+
+$Trigger.Script($options)
+
+trap {continue}
+
+}
+
+　
+
+}
+
+}
+
+foreach($db in $srv.Databases | where {$_.IsSystemObject -eq $false})
+
+{
+
+foreach($UserDefinedFunction in $db.UserDefinedFunctions | where
+{$_.IsSystemObject -eq $false})
+
+{
+
+$sch=$UserDefinedFunction.Name
+
+$sch=$sch.replace("\","_")
+
+$options.FileName = $filePath + '['+$db.Name+']\Functions\' +'['+$sch +
+'].UDF'
+
+$UserDefinedFunction.Script($options)
+
+trap {continue}
+
+}
+
+}
+
+foreach($db in $srv.Databases | where {$_.IsSystemObject -eq $false})
+
+{
+
+foreach($StoredProcedure in $db.StoredProcedures | where
+{$_.IsSystemObject -eq $false})
+
+{
+
+$sch=$StoredProcedure.Name
+
+$sch=$sch.replace("\","_")
+
+$options.FileName = $filePath + '['+$db.Name+']\StoredProcedures\'
++'['+$sch + '].StoredProcedure'
+
+$StoredProcedure.Script($options)
+
+trap {continue}
+
+}
+
+}
+
+　
+
+
+

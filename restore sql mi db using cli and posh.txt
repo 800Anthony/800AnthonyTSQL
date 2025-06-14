@@ -1,0 +1,162 @@
+
+--CLOUD SHELL POSH--
+
+# Input parameters
+param(
+    [string]$ResourceGroupName = "RG-Assessments-CEP",
+    [string]$ManagedInstanceName = "ukcepprodsql",
+    [string]$SourceDatabaseName = "ukihdbprod_snapshot",
+    [string]$DestinationDatabaseName = "ukihdbprod_snapshot2",
+    [DateTime]$RestorePoint = (Get-Date).AddHours(-1).ToUniversalTime(), # Default to 1 hour ago
+    [string]$NewOwner = "dleung@maximusuk.co.uk"
+)
+
+# Ensure Az modules are imported
+Import-Module Az.Accounts
+Import-Module Az.Sql
+
+try {
+    # Connect to Azure using the Automation Account's Managed Identity
+    Connect-AzAccount -Identity
+
+    # Function to check if a database exists
+    function Test-DatabaseExists {
+        param([string]$DatabaseName)
+        try {
+            Get-AzSqlInstanceDatabase -ResourceGroupName $ResourceGroupName -InstanceName $ManagedInstanceName -Name $DatabaseName -ErrorAction Stop
+            return $true
+        }
+        catch {
+            return $false
+        }
+    }
+
+    # Delete the existing snapshot database if it exists
+    if (Test-DatabaseExists -DatabaseName $DestinationDatabaseName) {
+        Write-Output "Deleting existing snapshot database: $DestinationDatabaseName"
+        Remove-AzSqlInstanceDatabase -ResourceGroupName $ResourceGroupName -InstanceName $ManagedInstanceName -Name $DestinationDatabaseName -Force
+        
+        # Wait for the deletion to complete
+        while (Test-DatabaseExists -DatabaseName $DestinationDatabaseName) {
+            Write-Output "Waiting for database deletion to complete..."
+            Start-Sleep -Seconds 10
+        }
+        Write-Output "Existing snapshot database deleted successfully."
+    }
+    else {
+        Write-Output "No existing snapshot database found. Proceeding with restore."
+    }
+
+    # Perform the restore operation
+    Write-Output "Starting database restore operation..."
+    $restoreOperation = Restore-AzSqlInstanceDatabase `
+        -FromPointInTimeBackup `
+        -ResourceGroupName $ResourceGroupName `
+        -InstanceName $ManagedInstanceName `
+        -Name $SourceDatabaseName `
+        -PointInTime $RestorePoint `
+        -TargetInstanceDatabaseName $DestinationDatabaseName
+
+    Write-Output "Restore operation started successfully."
+    Write-Output "Operation ID: $($restoreOperation.OperationId)"
+
+    # Poll for the operation status
+    do {
+        Start-Sleep -Seconds 30
+        $status = Get-AzSqlInstanceDatabase `
+            -ResourceGroupName $ResourceGroupName `
+            -InstanceName $ManagedInstanceName `
+            -Name $DestinationDatabaseName
+        Write-Output "Current status: $($status.Status)"
+    } while ($status.Status -eq 'Creating')
+
+    Write-Output "Final status: $($status.Status)"
+
+}
+catch {
+    Write-Error "An error occurred: $_"
+    Write-Error "Error details: $($_.Exception.Message)"
+    if ($_.Exception.InnerException) {
+        Write-Error "Inner exception: $($_.Exception.InnerException.Message)"
+    }
+    throw
+}
+
+--CLOUD SHELL CLI--
+
+--az sql midb delete --name "ukihdbprod_snapshot" --mi "ukcepprodsql" --resource-group "RG-Assessments-CEP" --yes
+--az sql midb restore -g "RG-Assessments-CEP" --mi "ukcepprodsql" -n "ukihdbprod" --dest-name "ukihdbprod_snapshot" --time $(date -u +"%Y-%m-%dT%H:%M:%SZ")
+--az sql midb restore -g "RG-Assessments-CEP" --mi "ukcepprodsql" -n "ukihdbprod_snapshot" --dest-name "ukihdbprod_snapshot2" --time "2024-09-16T07:00:00"
+
+# Input parameters
+RESOURCE_GROUP="RG-Assessments-CEP"
+MANAGED_INSTANCE="ukcepprodsql"
+SOURCE_DATABASE="ukihdbprod"
+DESTINATION_DATABASE="ukihdbprod_snapshot"
+RESTORE_POINT=$(date -u -d "1 hour ago" +"%Y-%m-%dT%H:%M:%SZ")
+
+# Login using the managed identity
+az login --identity
+
+# Function to check if a database exists
+database_exists() {
+    az sql midb show --resource-group $RESOURCE_GROUP --mi $MANAGED_INSTANCE --name $1 &> /dev/null
+    return $?
+}
+
+# Delete the existing snapshot database if it exists
+if database_exists $DESTINATION_DATABASE; then
+    echo "Deleting existing snapshot database: $DESTINATION_DATABASE"
+    az sql midb delete --resource-group $RESOURCE_GROUP --mi $MANAGED_INSTANCE --name $DESTINATION_DATABASE --yes
+    
+    # Wait for the deletion to complete
+    while database_exists $DESTINATION_DATABASE; do
+        echo "Waiting for database deletion to complete..."
+        sleep 10
+    done
+    echo "Existing snapshot database deleted successfully."
+else
+    echo "No existing snapshot database found. Proceeding with restore."
+fi
+
+# Perform the restore operation
+echo "Starting database restore operation..."
+RESTORE_RESULT=$(az sql midb restore --resource-group $RESOURCE_GROUP \
+                                     --mi $MANAGED_INSTANCE \
+                                     --name $SOURCE_DATABASE \
+                                     --dest-name $DESTINATION_DATABASE \
+                                     --time $RESTORE_POINT \
+                                     --output json)
+
+# Check if the restore operation started successfully
+if [ $? -eq 0 ]; then
+    echo "Restore operation started successfully."
+    
+    # Extract the operation ID (this might vary depending on the exact output format)
+    OPERATION_ID=$(echo $RESTORE_RESULT | jq -r '.operationId // empty')
+    if [ -n "$OPERATION_ID" ]; then
+        echo "Operation ID: $OPERATION_ID"
+    else
+        echo "Operation ID not available in the response."
+    fi
+
+    # Poll for the operation status
+    while true; do
+        sleep 30
+        STATUS=$(az sql midb show --resource-group $RESOURCE_GROUP \
+                                  --mi $MANAGED_INSTANCE \
+                                  --name $DESTINATION_DATABASE \
+                                  --query "status" -o tsv)
+        echo "Current status: $STATUS"
+        
+        if [ "$STATUS" != "Creating" ]; then
+            break
+        fi
+    done
+
+    echo "Final status: $STATUS"
+else
+    echo "Failed to start restore operation."
+    echo "Error details: $RESTORE_RESULT"
+fi
+--ALTER AUTHORIZATION ON DATABASE::[ukihdbprod_snapshot] TO [dleung@maximusuk.co.uk];

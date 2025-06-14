@@ -1,0 +1,31 @@
+SET NOCOUNT ON ;
+
+DECLARE @default_trace_path NVARCHAR(260) ;
+
+-- get the default trace file location
+SELECT  @default_trace_path = [path]
+FROM    sys.traces
+WHERE   is_default = 1
+
+-- remove the # suffix from the default trace file location, e.g. E:\Trace\log_419.trc becomes E:\Trace\log.trc
+SELECT  @default_trace_path = REVERSE(@default_trace_path),
+        @default_trace_path = REVERSE(SUBSTRING(@default_trace_path, CHARINDEX('_', @default_trace_path) + 1, 260)) + '.trc' ;
+
+PRINT @default_trace_path
+
+IF OBJECT_ID(N'tempdb..#autogrow_events_scan', 'U') > 0 
+    DROP TABLE #autogrow_events_scan ;
+
+-- load all trace files into a temp table 
+SELECT  e.*
+INTO    #autogrow_events_scan
+FROM    sys.fn_trace_gettable(@default_trace_path, DEFAULT) e ;
+
+SELECT  MAX(StartTime),
+        MIN(starttime),
+        COUNT(*)
+FROM    #autogrow_events_scan
+
+SELECT  *
+FROM    #autogrow_events_scan
+ORDER BY StartTime ;
